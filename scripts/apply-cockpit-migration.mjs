@@ -22,7 +22,7 @@ const migrations = [
         "agent_schedules",
         "audit_log",
       ),
-      probe("company policy seed", "SELECT count(*) = 11 AS ready FROM agent_policies WHERE policy_version = 1"),
+      probe("company policy seed", "SELECT count(*) = 12 AS ready FROM agent_policies WHERE policy_version = 1"),
     ],
   },
   {
@@ -58,7 +58,7 @@ const migrations = [
       ),
       probe(
         "agent seed",
-        `SELECT count(*) = 11 AS ready
+        `SELECT count(*) = 12 AS ready
            FROM cockpit_agents
           WHERE id = ANY($1::text[])`,
         [[
@@ -69,6 +69,7 @@ const migrations = [
           "qa_safety",
           "growth",
           "content_brand",
+          "video_creator",
           "sales_partnerships",
           "customer_care",
           "finance_risk",
@@ -242,6 +243,28 @@ const migrations = [
         "ops_collaborator_presence",
         "ops_collaborator_presence_recent_idx",
       ),
+    ],
+  },
+  {
+    id: "014_video_studio",
+    file: "014_video_studio.sql",
+    probes: [
+      ...relations(
+        "video_jobs",
+        "video_one_active_job_idx",
+        "video_jobs_created_idx",
+        "video_jobs_worker_idx",
+      ),
+      probe("video creator roster seed", "SELECT EXISTS (SELECT 1 FROM cockpit_agents WHERE id = 'video_creator' AND enabled = true) AS ready"),
+      probe("video creator policy seed", "SELECT EXISTS (SELECT 1 FROM agent_policies WHERE agent_id = 'video_creator' AND policy_version = 1 AND enabled = true) AS ready"),
+    ],
+  },
+  {
+    id: "015_video_retry",
+    file: "015_video_retry.sql",
+    probes: [
+      column("video_jobs", "brief_attempt_count"),
+      constraint("video_jobs", "video_jobs_brief_attempt_count_check"),
     ],
   },
 ];

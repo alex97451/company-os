@@ -44,7 +44,12 @@ export class AppServerV2Transport implements CodexTransport {
         ...(envelope.outputSchema ? { outputSchema: envelope.outputSchema } : {}),
       });
       return { status: "accepted", transport: this.kind, remoteThreadId: result.threadId, remoteTurnId: result.turnId, acceptedAt: new Date().toISOString() };
-    } catch {
+    } catch (error) {
+      console.error(JSON.stringify({
+        level: "error",
+        code: "codex_dispatch_failed",
+        detail: safeTransportErrorCode(error),
+      }));
       // A transport exception cannot establish whether Codex accepted the turn.
       return { status: "uncertain", transport: this.kind, code: "send_outcome_unknown" };
     }
@@ -107,4 +112,9 @@ export class DeterministicDemoTransport implements CodexTransport {
 
 function isSupportedProtocol(value: string): value is (typeof SUPPORTED_APP_SERVER_PROTOCOLS)[number] {
   return (SUPPORTED_APP_SERVER_PROTOCOLS as readonly string[]).includes(value);
+}
+
+function safeTransportErrorCode(error: unknown): string {
+  if (!(error instanceof Error) || error.name !== "CodexAppServerError") return "transport_exception";
+  return /^app_server_[a-z0-9_-]+$/.test(error.message) ? error.message : "app_server_unknown_error";
 }

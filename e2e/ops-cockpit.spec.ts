@@ -80,6 +80,17 @@ test.describe("local owner company cockpit", () => {
     expect(dimensions.composerPosition).not.toBe("sticky");
     expect(consoleErrors.filter((message) => message.includes("same key"))).toEqual([]);
 
+    await page.getByRole("button", { name: "Vidéos", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Studio vidéo" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Regarder le résultat" })).toBeVisible();
+    await expect(page.getByLabel("Sujet de la vidéo")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Créer la vidéo|Une vidéo est déjà en production/ })).toBeVisible();
+    const studioDimensions = await page.evaluate(() => ({
+      viewport: document.documentElement.clientWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    expect(studioDimensions.content).toBeLessThanOrEqual(studioDimensions.viewport + 1);
+
     await page.getByRole("button", { name: "Santé", exact: true }).click();
     await expect(page.getByRole("heading", { name: "État du système local" })).toBeVisible();
     await expect(page.getByText("Flux local", { exact: true })).toBeVisible();

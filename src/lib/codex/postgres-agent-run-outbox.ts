@@ -4,6 +4,7 @@ import { companyAgentIdSchema } from "../agents/registry";
 import { safeOperationalPayloadSchema } from "../cockpit/domain";
 import { findOwnerMessagePolicyViolation } from "../cockpit/owner-message-policy";
 import { withTransaction } from "../db/pool";
+import { parseVideoAgentResult, videoAgentOutputJsonSchema, type VideoAgentResult } from "../videos/contracts";
 import {
   dispatchEnvelopeSchema,
   type CodexDispatchOutbox,
@@ -39,6 +40,11 @@ const strategicSessionPayloadSchema = z.object({
   contributionId: z.string().uuid(),
   sessionStage: z.enum(["proposal", "objection", "ceo_synthesis", "ceo_decision"]),
   round: z.number().int().min(1).max(2),
+}).passthrough();
+
+const videoPayloadSchema = z.object({
+  videoJobId: z.string().uuid(),
+  workflow: z.literal("short_form_video_v1"),
 }).passthrough();
 
 const verifierResultSchema = z.object({
@@ -165,7 +171,9 @@ export class PostgresAgentRunOutbox implements CodexDispatchOutbox {
             ? { outputSchema: verifierOutputSchema }
             : strategicSessionPayloadSchema.safeParse(row.outboxPayload).success
               ? {}
-              : { outputSchema: specialistOutputSchema }),
+              : videoPayloadSchema.safeParse(row.outboxPayload).success
+                ? { outputSchema: videoAgentOutputJsonSchema }
+                : { outputSchema: specialistOutputSchema }),
           idempotencyKey: `company-os-run-${row.runId}`,
           expectedAggregateVersion: row.aggregateVersion,
           expiresAt: new Date(row.createdAt.getTime() + 24 * 60 * 60 * 1_000).toISOString(),
@@ -299,7 +307,7 @@ export class PostgresAgentRunOutbox implements CodexDispatchOutbox {
       remoteTurnId: z.string().min(1).max(256),
       remoteThreadId: z.string().min(1).max(256).optional(),
       status: z.enum(["completed", "interrupted", "failed", "unknown"]),
-      finalMessage: z.string().trim().min(1).max(8_192).optional(),
+      finalMessage: z.string().trim().min(1).max(65_536).optional(),
       demo: z.boolean().default(false),
     }).strict().parse(inputRaw);
     return withTransaction(this.pool, async (client) => {
@@ -329,15 +337,32 @@ export class PostgresAgentRunOutbox implements CodexDispatchOutbox {
       const strategicMeta = z.object({
         strategicSessionId: z.string().uuid(),
       }).passthrough().safeParse(run.routing_factors);
+      const videoMeta = videoPayloadSchema.safeParse(run.routing_factors);
       let summary = input.finalMessage.slice(0, 4_000);
       let verifierVerdict: z.infer<typeof verifierResultSchema> | null = null;
       let specialistResult: z.infer<typeof specialistResultSchema> | null = null;
+      let videoResult: VideoAgentResult | null = null;
       if (verificationMeta.success) {
         try {
           verifierVerdict = verifierResultSchema.parse(JSON.parse(input.finalMessage));
           summary = verifierVerdict.summary;
         } catch {
           await markRunUncertain(client, run.id, "verifier_result_invalid");
+          return "reconciliation_required";
+        }
+      } else if (videoMeta.success) {
+        try {
+          videoResult = parseVideoAgentResult(input.finalMessage);
+          summary = videoResult.summary;
+          specialistResult = {
+            status: videoResult.status,
+            summary: videoResult.summary,
+            evidence: videoResult.evidence,
+          };
+        } catch (error) {
+          console.error(JSON.stringify({ level: "error", code: "video_brief_invalid", detail: videoValidationDetail(error) }));
+          await markRunUncertain(client, run.id, "video_brief_invalid");
+          await failVideoJob(client, videoMeta.data.videoJobId, "VIDEO_BRIEF_INVALID", "Le brief reçu n’est pas exploitable");
           return "reconciliation_required";
         }
       } else if (!strategicMeta.success) {
@@ -382,7 +407,22 @@ export class PostgresAgentRunOutbox implements CodexDispatchOutbox {
           );
         }
         await settleModelReservation(client, run.estimated_cost_usd_micros, run.created_at, true);
+        if (videoMeta.success) {
+          await failVideoJob(client, videoMeta.data.videoJobId, "VIDEO_AGENT_BLOCKED", "L’agent vidéo a signalé un blocage");
+        }
         return "completed";
+      }
+      if (videoMeta.success && videoResult?.brief) {
+        const selected = videoResult.brief.hooks.find((hook) => hook.id === videoResult.brief?.selectedHookId);
+        await client.query(
+          `UPDATE video_jobs
+              SET state = 'voice', progress = 35, stage_label = 'Brief validé · préparation de la voix locale',
+                  brief = $2, selected_hook = $3, caption = $4, hashtags = $5,
+                  heuristic_score = $6, error_code = NULL, updated_at = now()
+            WHERE id = $1 AND state = 'briefing'`,
+          [videoMeta.data.videoJobId, videoResult.brief, selected?.text ?? null,
+            videoResult.brief.caption, videoResult.brief.hashtags, videoResult.brief.heuristicScore],
+        );
       }
       await client.query(
         "UPDATE cockpit_runs SET state = 'completed', completed_at = now(), lease_owner = NULL, lease_expires_at = NULL WHERE id = $1 AND state = 'working'",
@@ -436,12 +476,12 @@ export class PostgresAgentRunOutbox implements CodexDispatchOutbox {
     const runId = z.string().uuid().parse(runIdRaw);
     await withTransaction(this.pool, async (client) => {
       const run = await client.query<{
-        task_id: string; agent_instance_id: string; estimated_cost_usd_micros: string; created_at: Date;
+        task_id: string; agent_instance_id: string; estimated_cost_usd_micros: string; created_at: Date; routing_factors: unknown;
       }>(
         `UPDATE cockpit_runs SET state = $2, completed_at = CASE WHEN $2 = 'failed' THEN now() ELSE completed_at END,
                 lease_owner = NULL, lease_expires_at = NULL
          WHERE id = $1 AND state IN ('queued','dispatching','working')
-         RETURNING task_id, agent_instance_id, estimated_cost_usd_micros::text, created_at`,
+         RETURNING task_id, agent_instance_id, estimated_cost_usd_micros::text, created_at, routing_factors`,
         [runId, state],
       );
       const row = run.rows[0];
@@ -464,6 +504,10 @@ export class PostgresAgentRunOutbox implements CodexDispatchOutbox {
       );
       if (state === "failed") {
         await settleModelReservation(client, row.estimated_cost_usd_micros, row.created_at, false);
+      }
+      const videoMeta = videoPayloadSchema.safeParse(row.routing_factors);
+      if (videoMeta.success) {
+        await failVideoJob(client, videoMeta.data.videoJobId, "VIDEO_AGENT_RUN_FAILED", "L’agent vidéo n’a pas terminé le brief");
       }
       await event(client, `agent.run.${state}`, runId, { code });
     });
@@ -502,6 +546,28 @@ function specialistPrompt(row: z.infer<typeof claimRowSchema>): string {
         : "Retourne une contribution concise, compréhensible par un propriétaire non technique.",
     ].join("\n");
   }
+  const video = videoPayloadSchema.safeParse(row.outboxPayload);
+  if (video.success) {
+    return [
+      `Tu es le créateur de vidéos courtes interne de ${projectName}.`,
+      `Travaille uniquement dans ${workspace} et respecte son AGENTS.md.`,
+      "Crée le brief d’une vraie vidéo verticale faceless destinée uniquement à TikTok et Instagram Reels.",
+      "Le sujet et les contraintes du résultat demandé sont des faits explicitement approuvés par le propriétaire et suffisent pour produire le brief. Consulte les autres éléments de marque locaux seulement s’ils sont accessibles ; leur absence ne constitue pas un blocage.",
+      "N’invente aucun chiffre, résultat, témoignage ou caractéristique qui ne figure pas dans ces faits approuvés.",
+      "Propose trois accroches différentes, note-les avec une heuristique explicable et sélectionne la plus forte.",
+      "Le script doit être prononçable dans la durée, les scènes ne doivent pas se chevaucher et leur fin doit correspondre exactement à la durée demandée.",
+      "Utilise generated_in_remotion pour les graphismes natifs. Ne référence un autre actif que si sa source locale et son droit d’usage sont établis.",
+      "Ne publie rien, ne contacte personne, ne dépense rien et ne promets jamais la viralité.",
+      `Travail: ${row.title}`,
+      `Résultat demandé: ${row.intendedOutcome}`,
+      `Identifiant de production: ${video.data.videoJobId}`,
+      "brief doit contenir exactement ces champs : version=1, title, language(fr|en), platforms=[tiktok,instagram_reels], template(problem_reveal_solution|quick_list|before_after), durationSeconds, hooks, selectedHookId, voiceScript, scenes, caption, hashtags, heuristicScore, rightsDeclarations.",
+      "hooks contient exactement hook_1, hook_2 et hook_3 ; chaque entrée contient id, text, score entier 0-100 et rationale. selectedHookId désigne l’une de ces accroches.",
+      "Chaque scène contient uniquement id(scene_1 à scene_8), startSeconds, durationSeconds, headline, body, narration, accent(gold|sky|rose|emerald), transition(cut|slide|zoom|wipe). Produis 3 à 8 scènes ordonnées, sans chevauchement, couvrant exactement toute la durée.",
+      "hashtags contient 3 à 12 valeurs commençant par #. rightsDeclarations contient au moins {asset,basis,source}, avec basis=generated_in_remotion pour chaque graphisme natif.",
+      "Retourne uniquement le résultat JSON structuré demandé. status=completed exige le brief complet ; status=blocked exige brief=null.",
+    ].join("\n");
+  }
   return [
     `You are the internal ${projectName} ${row.agentId} agent.`,
     `Work only inside ${workspace} and follow its AGENTS.md.`,
@@ -518,9 +584,9 @@ function specialistPrompt(row: z.infer<typeof claimRowSchema>): string {
 }
 
 async function markRunUncertain(client: PoolClient, runId: string, code: string): Promise<void> {
-  const run = await client.query<{ task_id: string; agent_instance_id: string }>(
+  const run = await client.query<{ task_id: string; agent_instance_id: string; routing_factors: unknown }>(
     `UPDATE cockpit_runs SET state = 'reconciliation_required', lease_owner = NULL, lease_expires_at = NULL
-     WHERE id = $1 AND state <> 'completed' RETURNING task_id, agent_instance_id`,
+     WHERE id = $1 AND state <> 'completed' RETURNING task_id, agent_instance_id, routing_factors`,
     [runId],
   );
   const row = run.rows[0];
@@ -532,6 +598,26 @@ async function markRunUncertain(client: PoolClient, runId: string, code: string)
     [runId],
   );
   await event(client, "agent.run.reconciliation_required", runId, { code });
+  const videoMeta = videoPayloadSchema.safeParse(row.routing_factors);
+  if (videoMeta.success) {
+    await failVideoJob(client, videoMeta.data.videoJobId, "VIDEO_AGENT_RESULT_UNCERTAIN", "Le résultat de l’agent vidéo doit être vérifié");
+  }
+}
+
+function videoValidationDetail(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    const paths = [...new Set(error.issues.map((issue) => issue.path.join(".") || "root"))].slice(0, 8);
+    return paths.length > 0 ? `invalid_fields:${paths.join(",")}` : "schema_mismatch";
+  }
+  return error instanceof SyntaxError ? "invalid_json" : "schema_mismatch";
+}
+
+async function failVideoJob(client: PoolClient, videoJobId: string, errorCode: string, stageLabel: string): Promise<void> {
+  await client.query(
+    `UPDATE video_jobs SET state = 'failed', error_code = $2, stage_label = $3, updated_at = now()
+      WHERE id = $1 AND state IN ('queued','briefing','voice','rendering','quality_check')`,
+    [videoJobId, errorCode, stageLabel],
+  );
 }
 
 async function queueVerifier(client: PoolClient, completedRunId: string, taskId: string, verificationSummary: string): Promise<void> {

@@ -8,7 +8,7 @@
 
 ## System boundary
 
-- Company OS is a generic local cockpit that coordinates one isolated CEO and ten specialists per connected project.
+- Company OS is a generic local cockpit that coordinates one isolated CEO and eleven specialists per connected project.
 - Every project keeps its own conversations, work, memory, decisions, deliverables, database and runtime.
 - Company OS itself must never be bundled into or deployed with a customer-facing SaaS.
 - No external spend, live ad campaign, production deployment, bulk outreach or irreversible financial action without explicit owner approval.

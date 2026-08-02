@@ -7,7 +7,7 @@ Statut : conception initiale validée, extraction implémentée et vérifiée lo
 ## Compréhension verrouillée
 
 - Ops devient un projet local indépendant des SaaS qu'il pilote.
-- Chaque projet connecté possède son propre CEO, ses dix spécialistes, ses conversations, ses travaux, ses décisions, ses livrables et sa mémoire.
+- Chaque projet connecté possède son propre CEO, ses onze spécialistes, ses conversations, ses travaux, ses décisions, ses livrables et sa mémoire.
 - Deux projets connectés ne doivent partager aucun contexte métier ou état opérationnel.
 - Une seule interface locale permet de sélectionner et piloter les entreprises.
 - Les SaaS peuvent être déployés séparément ; aucun code Ops ne doit entrer dans leurs builds publics.

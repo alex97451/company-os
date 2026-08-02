@@ -30,14 +30,20 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test e2e/ops-cockpit.spec.ts",
+    "test:video": "tsx scripts/render-video-smoke.ts",
+    "video:demo": "tsx --env-file=.env.local scripts/create-video-demo.ts",
+    "video:retry": "tsx --env-file=.env.local scripts/retry-video-job.ts",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
+    "@remotion/bundler": "4.0.503",
+    "@remotion/renderer": "4.0.503",
     "lucide-react": "1.25.0",
-    "next": "16.2.10",
+    "next": "16.2.12",
     "pg": "8.22.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
+    "remotion": "4.0.503",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -51,11 +57,17 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.5",
-    "eslint-config-next": "16.2.10",
+    "eslint-config-next": "16.2.12",
     "jsdom": "29.1.1",
     "tailwindcss": "4.3.3",
     "tsx": "4.23.1",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.25",
+      "sharp": "0.35.3"
+    }
   }
 }

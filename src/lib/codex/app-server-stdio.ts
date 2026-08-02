@@ -185,16 +185,21 @@ export class CodexAppServerStdioClient implements AppServerClient {
     if (this.state !== "connected") throw safeError("app_server_offline");
     // Resume is intentionally explicit: the cockpit only dispatches to existing,
     // immutably mapped agent threads and never fabricates a replacement thread.
-    const resumed = await this.request(
-      "thread/resume",
-      {
-        threadId: input.threadId,
-        excludeTurns: true,
-        permissions: ":workspace",
-        runtimeWorkspaceRoots: [this.workspaceRoot],
-      },
-      threadResultSchema,
-    );
+    let resumed: z.infer<typeof threadResultSchema>;
+    try {
+      resumed = await this.request(
+        "thread/resume",
+        {
+          threadId: input.threadId,
+          excludeTurns: true,
+          permissions: ":workspace",
+          runtimeWorkspaceRoots: [this.workspaceRoot],
+        },
+        threadResultSchema,
+      );
+    } catch (error) {
+      throw safeError(`app_server_thread_resume_${rpcFailureCode(error)}`);
+    }
     const params = {
       threadId: resumed.thread.id,
       input: [{ type: "text", text: input.prompt, text_elements: [] }],
@@ -209,7 +214,12 @@ export class CodexAppServerStdioClient implements AppServerClient {
     // idempotencyKey remains local/outbox metadata. The current official request
     // schema has no idempotency field, so sending it would be unsafe.
     void input.idempotencyKey;
-    const started = await this.request("turn/start", params, turnResultSchema);
+    let started: z.infer<typeof turnResultSchema>;
+    try {
+      started = await this.request("turn/start", params, turnResultSchema);
+    } catch (error) {
+      throw safeError(`app_server_turn_start_${rpcFailureCode(error)}`);
+    }
     this.turnThreads.set(started.turn.id, resumed.thread.id);
     return { threadId: resumed.thread.id, turnId: started.turn.id };
   }
@@ -416,6 +426,11 @@ function safeError(code: string): Error {
   const error = new Error(code);
   error.name = "CodexAppServerError";
   return error;
+}
+
+function rpcFailureCode(error: unknown): string {
+  if (!(error instanceof Error) || error.name !== "CodexAppServerError") return "unknown";
+  return /^app_server_[a-z0-9_-]+$/.test(error.message) ? error.message.replace(/^app_server_/, "") : "unknown";
 }
 
 function classifyAppServerStderr(value: string): AppServerDiagnostic | undefined {

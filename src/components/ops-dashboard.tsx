@@ -11,6 +11,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Clapperboard,
   CircleDollarSign,
   Clock3,
   Cpu,
@@ -65,6 +66,7 @@ import {
 } from "@/lib/cockpit/client-contracts";
 import { normalizeActivityEvents } from "@/lib/cockpit/activity-events";
 import { OpsSystemLogs } from "@/components/ops-system-logs";
+import { OpsVideoStudio } from "@/components/ops-video-studio";
 
 const stateMeta: Record<CompanyState, { label: string; dot: string; badge: string }> = {
   waiting: { label: "En attente", dot: "bg-slate-400", badge: "border-slate-500/30 bg-slate-500/10 text-slate-300" },
@@ -80,7 +82,7 @@ const surface = "rounded-2xl border border-white/[0.08] bg-[#10151e] shadow-[0_2
 type ConnectionState = "loading" | "connected" | "degraded" | "offline";
 type DataSource = "loading" | "live" | "offline";
 type SendState = "idle" | "sending" | "waiting" | "error";
-type OpsView = "overview" | "work" | "team" | "health" | "integrations";
+type OpsView = "overview" | "work" | "team" | "video" | "health" | "integrations";
 type TaskFilter = "all" | "working" | "waiting" | "problem" | "done";
 type AgentActivityDetail = OpsSnapshot["agentActivity"][number];
 
@@ -127,6 +129,7 @@ function opsViewLabel(view: string): string {
     overview: "Accueil",
     work: "Travaux",
     team: "Équipe",
+    video: "Studio vidéo",
     health: "Santé",
     integrations: "Système",
   };
@@ -712,7 +715,7 @@ export function OpsDashboard() {
                 Voici ce qui mérite ton attention.
               </h1>
             </div>
-            <p className="flex items-center gap-2 text-sm text-slate-400"><Activity aria-hidden="true" className="size-4 text-emerald-400" /> 11 agents · {workingCount} en cours</p>
+            <p className="flex items-center gap-2 text-sm text-slate-400"><Activity aria-hidden="true" className="size-4 text-emerald-400" /> 12 agents · {workingCount} en cours</p>
           </div>
 
           <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.65fr)]">
@@ -802,6 +805,10 @@ export function OpsDashboard() {
               ))}
             </div>
           </div>
+        </section>
+
+        <section id="video" className={`${activeView === "video" ? "block" : "hidden"} scroll-mt-24`}>
+          <OpsVideoStudio access={access} />
         </section>
 
         <div id="work" className={`${activeView === "work" ? "grid" : "hidden"} scroll-mt-24 items-start gap-5 lg:grid-cols-2`}>
@@ -1098,6 +1105,7 @@ function CommandNavigation({
     { id: "overview", label: "Accueil", icon: LayoutDashboard },
     { id: "work", label: "Travaux", icon: BriefcaseBusiness },
     { id: "team", label: "Équipe", icon: UsersRound },
+    { id: "video", label: "Vidéos", icon: Clapperboard },
     { id: "health", label: "Santé", icon: Gauge },
     { id: "integrations", label: "Système", icon: PlugZap },
   ];
@@ -1115,7 +1123,7 @@ function CommandNavigation({
           <p className="truncate text-xs text-slate-400">Command Center · Local</p>
         </div>
       </div>
-      <div className="grid grid-cols-5 gap-1 md:flex md:justify-center xl:mt-6 xl:flex-col xl:justify-start">
+      <div className="grid grid-cols-6 gap-1 md:flex md:justify-center xl:mt-6 xl:flex-col xl:justify-start">
         {destinations.map(({ id, label, icon: Icon }) => {
           const selected = activeView === id;
           return (

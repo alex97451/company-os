@@ -154,7 +154,7 @@ export const opsPresenceResponseSchema = z.object({
   presence: z.array(z.object({
     actorId: z.string().regex(/^[a-z][a-z0-9_-]{1,31}$/),
     role: z.enum(["owner", "operator"]),
-    activeView: z.enum(["overview", "work", "team", "health", "integrations"]),
+    activeView: z.enum(["overview", "work", "team", "video", "health", "integrations"]),
     lastSeenAt: z.string().datetime(),
   }).strict()).max(20),
 }).strict();

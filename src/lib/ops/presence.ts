@@ -3,7 +3,7 @@ import { z } from "zod";
 import { safeOperationalPayloadSchema } from "@/lib/cockpit/domain";
 import type { OpsSessionClaims } from "./auth";
 
-export const opsViewSchema = z.enum(["overview", "work", "team", "health", "integrations"]);
+export const opsViewSchema = z.enum(["overview", "work", "team", "video", "health", "integrations"]);
 export type OpsViewId = z.infer<typeof opsViewSchema>;
 
 export const opsPresenceSchema = z.object({

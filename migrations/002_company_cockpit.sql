@@ -6,7 +6,7 @@ CREATE TABLE cockpit_agents (
   role text NOT NULL,
   enabled boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
-  CHECK (id IN ('ceo','product','design_conversion','engineering','qa_safety','growth','content_brand','sales_partnerships','customer_care','finance_risk','reliability_privacy'))
+  CHECK (id IN ('ceo','product','design_conversion','engineering','qa_safety','growth','content_brand','video_creator','sales_partnerships','customer_care','finance_risk','reliability_privacy'))
 );
 
 INSERT INTO cockpit_agents (id, display_name, role) VALUES
@@ -17,6 +17,7 @@ INSERT INTO cockpit_agents (id, display_name, role) VALUES
   ('qa_safety','QA & Report Safety','verifier'),
   ('growth','Growth & Marketing','specialist'),
   ('content_brand','Content & Brand','specialist'),
+  ('video_creator','Short-form Video Creator','specialist'),
   ('sales_partnerships','Sales & Partnerships','specialist'),
   ('customer_care','Customer Care','specialist'),
   ('finance_risk','Finance & Revenue Risk','verifier'),

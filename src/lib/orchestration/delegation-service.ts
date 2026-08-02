@@ -20,6 +20,7 @@ const requestSchema = z.object({
   sourceCommandId: z.string().uuid().optional(),
   delegation: ceoDelegationEnvelopeSchema,
   budgetScope: z.literal("company:model:daily").default("company:model:daily"),
+  runMetadata: safeOperationalPayloadSchema.optional(),
 }).strict();
 
 const allowlistRowSchema = z.object({
@@ -96,6 +97,7 @@ export class CeoDelegationService {
             estimatedCostUsdMicros],
         );
         const payload = safeOperationalPayloadSchema.parse({
+          ...(request.runMetadata ?? {}),
           version: 1, taskId, runId, agentId: task.agentId, threadId: instance.threadId,
           title: task.title, intendedOutcome: task.intendedOutcome, riskClass: task.riskClass,
           model: decision.model, modelProfile: decision.profile, reasoningEffort: decision.reasoningEffort,
@@ -105,6 +107,12 @@ export class CeoDelegationService {
           `INSERT INTO cockpit_outbox (run_id, destination, safe_payload) VALUES ($1,$2,$3)`,
           [runId, `codex:${task.agentId}`, payload],
         );
+        if (request.runMetadata) {
+          await client.query(
+            "UPDATE cockpit_runs SET routing_factors = routing_factors || $2::jsonb WHERE id = $1",
+            [runId, request.runMetadata],
+          );
+        }
         await client.query(
           `INSERT INTO cockpit_events (event_type, aggregate_type, aggregate_id, safe_payload)
            VALUES ('model.routing.selected','run',$1,$2)`,

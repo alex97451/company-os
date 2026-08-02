@@ -34,6 +34,10 @@ export const OWNER_AGENT_PRESENTATION: Readonly<Record<CompanyAgentId, OwnerAgen
     name: "Responsable contenu et marque",
     role: "Crée les contenus, visuels et publications en anglais et français",
   },
+  video_creator: {
+    name: "Créateur de vidéos courtes",
+    role: "Produit les TikTok et Reels verticaux, du concept au fichier final",
+  },
   sales_partnerships: {
     name: "Responsable partenariats",
     role: "Développe les partenariats et opportunités commerciales",

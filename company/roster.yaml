@@ -49,6 +49,11 @@ agents:
     level: draft
     cadence: twice_weekly_and_launch_trigger
     verifier: qa_safety
+  - id: video_creator
+    manifest: agents/video-creator.md
+    level: stage
+    cadence: owner_requested_only
+    verifier: qa_safety
   - id: sales_partnerships
     manifest: agents/sales-partnerships.md
     level: draft

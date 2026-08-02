@@ -17,7 +17,7 @@ Company OS is source-available software. Noncommercial use is permitted under th
 
 ## Présentation
 
-Company OS est un cockpit local qui permet de connecter plusieurs projets logiciels et d’attribuer à chacun une équipe autonome composée d’un CEO et de dix spécialistes. Chaque entreprise dispose de ses propres conversations Codex, travaux, décisions, livrables, mémoire, base PostgreSQL, stockage MinIO et runtime.
+Company OS est un cockpit local qui permet de connecter plusieurs projets logiciels et d’attribuer à chacun une équipe autonome composée d’un CEO et de onze spécialistes. Chaque entreprise dispose de ses propres conversations Codex, travaux, décisions, livrables, mémoire, base PostgreSQL, stockage MinIO et runtime.
 
 Le propriétaire choisit quand lancer une séquence autonome, suit les agents en temps réel et conserve le contrôle des actions sensibles. Company OS fonctionne sur la machine locale : il ne doit pas être intégré au build public des produits qu’il pilote.
 
@@ -32,7 +32,7 @@ Il ne remplace pas le jugement du propriétaire. Il organise le travail et rend 
 ## Fonctionnalités
 
 - cockpit central pour enregistrer et ouvrir plusieurs entreprises ;
-- un CEO et dix agents spécialisés par projet ;
+- un CEO et onze agents spécialisés par projet ;
 - conversations Codex persistantes et distinctes pour chaque agent ;
 - sessions autonomes déclenchées manuellement par le propriétaire ;
 - discussion stratégique entre le CEO et les spécialistes ;
@@ -45,10 +45,11 @@ Il ne remplace pas le jugement du propriétaire. Il organise le travail et rend 
 - isolation par base PostgreSQL, bucket MinIO, port et runtime ;
 - démarrage et arrêt de toute la pile avec deux scripts PowerShell ;
 - interface responsive en français, pensée pour une personne non technique.
+- Studio vidéo local : brief Codex, voix Windows et vrais MP4 verticaux Remotion pour TikTok et Instagram Reels, sans publication automatique.
 
 ## Équipe fournie
 
-Chaque projet reçoit onze rôles internes indépendants :
+Chaque projet reçoit douze rôles internes indépendants :
 
 | Agent | Responsabilité principale |
 | --- | --- |
@@ -59,12 +60,13 @@ Chaque projet reçoit onze rôles internes indépendants :
 | Qualité & sécurité | Tests, vérification et blocage des livraisons risquées. |
 | Croissance | Acquisition, funnel et expérimentation. |
 | Contenu & marque | Positionnement, contenus et cohérence éditoriale. |
+| Création vidéo courte | Accroches, storyboard, voix, rendu Remotion et livrables TikTok/Reels. |
 | Ventes & partenariats | Opportunités commerciales et partenariats. |
 | Service client | Retours utilisateurs, support et documentation d’aide. |
 | Finance & risques | Budget, viabilité et risques financiers. |
 | Fiabilité & confidentialité | Exploitation, incidents, données et confidentialité. |
 
-Les étapes techniques d’un produit ne sont pas présentées comme des agents. Ces onze rôles constituent l’équipe interne chargée de construire et d’exploiter le projet connecté.
+Les étapes techniques d’un produit ne sont pas présentées comme des agents. Ces douze rôles constituent l’équipe interne chargée de construire et d’exploiter le projet connecté.
 
 ## Architecture
 
@@ -72,15 +74,15 @@ Les étapes techniques d’un produit ne sont pas présentées comme des agents.
 flowchart LR
     O["Propriétaire"] --> C["Cockpit Company OS"]
     C --> R["Registre central local"]
-    R --> A["Projet A : CEO + 10 agents"]
-    R --> B["Projet B : CEO + 10 agents"]
+    R --> A["Projet A : CEO + 11 agents"]
+    R --> B["Projet B : CEO + 11 agents"]
     A --> DA["PostgreSQL + MinIO + runtime dédiés"]
     B --> DB["PostgreSQL + MinIO + runtime dédiés"]
-    A --> CA["11 conversations Codex dédiées"]
-    B --> CB["11 conversations Codex dédiées"]
+    A --> CA["12 conversations Codex dédiées"]
+    B --> CB["12 conversations Codex dédiées"]
 ```
 
-Le cockpit central écoute par défaut sur `127.0.0.1:3020`. PostgreSQL et MinIO sont exposés uniquement sur la boucle locale. Chaque projet reçoit un port entre `3200` et `3399`, une base, un bucket, un runtime et onze identifiants de conversations distincts.
+Le cockpit central écoute par défaut sur `127.0.0.1:3020`. PostgreSQL et MinIO sont exposés uniquement sur la boucle locale. Chaque projet reçoit un port entre `3200` et `3399`, une base, un bucket, un runtime et douze identifiants de conversations distincts.
 
 Consultez [l’architecture détaillée](docs/architecture.md) pour les frontières de sécurité et le fonctionnement des processus.
 
@@ -126,7 +128,7 @@ Pour arrêter tous les processus Company OS sans supprimer les volumes et les do
 4. Attendez que la carte indique que le projet est prêt.
 5. Cliquez sur **Ouvrir son cockpit**.
 
-L’initialisation est idempotente. Elle ajoute uniquement les fichiers `.company-os` absents, crée les ressources isolées, provisionne les onze conversations Codex et démarre le cockpit du projet. Elle ne remplace pas les fichiers existants et ne déclenche aucune campagne, dépense ou action externe.
+L’initialisation est idempotente. Elle ajoute uniquement les fichiers `.company-os` absents, crée les ressources isolées, provisionne les douze conversations Codex et démarre le cockpit du projet. Elle ne remplace pas les fichiers existants et ne déclenche aucune campagne, dépense ou action externe.
 
 Exemple de racine autorisée dans `.env.local` :
 
@@ -244,13 +246,15 @@ Toute utilisation principalement destinée à un avantage commercial ou à une r
 
 Cette section est un résumé pratique et ne remplace pas le texte de la licence. En cas de différence, [LICENSE.md](LICENSE.md) prévaut.
 
+Le moteur vidéo utilise Remotion, qui possède sa propre licence et ses propres conditions. Vérifiez les [conditions Remotion](https://www.remotion.dev/license) avant tout usage commercial, en équipe ou comme outil d’automatisation. Company OS n’achète aucune licence et n’active aucun service Remotion payant.
+
 ---
 
 # English
 
 ## Overview
 
-Company OS is a local control plane for connecting multiple software projects and assigning each one an autonomous internal team made of one CEO and ten specialists. Every company gets separate Codex conversations, work items, decisions, deliverables, memory, PostgreSQL database, MinIO storage and runtime.
+Company OS is a local control plane for connecting multiple software projects and assigning each one an autonomous internal team made of one CEO and eleven specialists. Every company gets separate Codex conversations, work items, decisions, deliverables, memory, PostgreSQL database, MinIO storage and runtime.
 
 The owner decides when to start an autonomous sequence, watches agents work in real time and keeps control of sensitive actions. Company OS runs on the local machine and must never be bundled into the public build of a managed product.
 
@@ -265,7 +269,7 @@ It does not replace owner judgment. It organizes the work and makes the internal
 ## Features
 
 - central cockpit for registering and opening multiple companies;
-- one CEO and ten specialist agents per project;
+- one CEO and eleven specialist agents per project;
 - persistent, project-specific Codex conversations for every agent;
 - autonomous sessions started manually by the owner;
 - strategy discussions between the CEO and specialists;
@@ -278,6 +282,7 @@ It does not replace owner judgment. It organizes the work and makes the internal
 - isolation by PostgreSQL database, MinIO bucket, port and runtime;
 - one-command startup and shutdown for the complete local stack;
 - responsive French interface designed for non-technical operators.
+- local Video Studio with Codex briefs, Windows voice synthesis and real Remotion MP4 renders for TikTok and Instagram Reels, with no automatic publishing.
 
 ## Included team
 
@@ -292,12 +297,13 @@ Every connected project receives eleven independent internal roles:
 | Quality & safety | Testing, verification and release blocking. |
 | Growth | Acquisition, funnel analysis and experiments. |
 | Content & brand | Positioning, content and editorial consistency. |
+| Short-form video | Hooks, storyboard, voice, Remotion rendering and TikTok/Reels deliverables. |
 | Sales & partnerships | Commercial opportunities and partnerships. |
 | Customer care | User feedback, support and help content. |
 | Finance & risk | Budget, viability and financial risk. |
 | Reliability & privacy | Operations, incidents, data and privacy. |
 
-Product pipeline stages are not presented as agents. These eleven roles are the internal team responsible for building and operating the connected project.
+Product pipeline stages are not presented as agents. These twelve roles are the internal team responsible for building and operating the connected project.
 
 ## Architecture
 
@@ -305,12 +311,12 @@ Product pipeline stages are not presented as agents. These eleven roles are the 
 flowchart LR
     O["Owner"] --> C["Company OS cockpit"]
     C --> R["Local central registry"]
-    R --> A["Project A: CEO + 10 agents"]
-    R --> B["Project B: CEO + 10 agents"]
+    R --> A["Project A: CEO + 11 agents"]
+    R --> B["Project B: CEO + 11 agents"]
     A --> DA["Dedicated PostgreSQL + MinIO + runtime"]
     B --> DB["Dedicated PostgreSQL + MinIO + runtime"]
-    A --> CA["11 dedicated Codex conversations"]
-    B --> CB["11 dedicated Codex conversations"]
+    A --> CA["12 dedicated Codex conversations"]
+    B --> CB["12 dedicated Codex conversations"]
 ```
 
 The central cockpit listens on `127.0.0.1:3020` by default. PostgreSQL and MinIO are bound to loopback. Each project receives a port between `3200` and `3399`, a database, a bucket, a runtime and eleven distinct conversation identifiers.
@@ -476,6 +482,8 @@ This repository is licensed under the [PolyForm Noncommercial License 1.0.0](LIC
 Any use primarily intended for commercial advantage or private monetary compensation requires a **separate paid commercial license**. To request commercial terms, contact the repository owner through their [GitHub profile](https://github.com/alex97451). Terms and pricing are agreed separately in writing.
 
 This section is a practical summary and does not replace the license text. If they differ, [LICENSE.md](LICENSE.md) controls.
+
+The video engine uses Remotion, which has its own license and terms. Review the [Remotion license](https://www.remotion.dev/license) before commercial, team or automation use. Company OS does not purchase a license or enable any paid Remotion service.
 
 ---
 

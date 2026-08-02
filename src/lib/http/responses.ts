@@ -39,6 +39,11 @@ export function apiError(error: unknown, fallback = "REQUEST_FAILED"): NextRespo
     COMPANY_SESSION_RUNTIME_NOT_READY: 503,
     COMPANY_SESSION_COCKPIT_PAUSED: 409,
     COMPANY_SESSION_EXTERNAL_WORK_MUST_BE_DISABLED: 409,
+    VIDEO_JOB_ALREADY_ACTIVE: 409,
+    VIDEO_JOB_NOT_FOUND: 404,
+    VIDEO_MEDIA_NOT_FOUND: 404,
+    VIDEO_JOB_NOT_CANCELLABLE: 409,
+    VIDEO_JOB_NOT_RETRYABLE: 409,
   };
   const integrationStatus = code.startsWith("CONNECTOR_") || code.startsWith("OAUTH_") || code.startsWith("PROJECT_") ? 400 : undefined;
   const status = clientErrors[code] ?? integrationStatus ?? (code.endsWith("_NOT_CONFIGURED") || code.includes("required") || code.includes("disabled") ? 503 : 500);

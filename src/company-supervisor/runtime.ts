@@ -21,6 +21,7 @@ const runtimeConfigSchema = z.object({
   mode: z.enum(["demo", "app-server-stdio"]).default("demo"),
   ceoThreadId: z.string().trim().min(1).max(256).optional(),
   codexCommand: z.string().trim().min(1).max(1_024).default("codex"),
+  projectRoot: z.string().trim().min(1).max(2_048).default(process.cwd()),
   ceoModel: z.string().regex(/^[a-zA-Z0-9._-]{1,128}$/).default("gpt-5.6-sol"),
   pollMs: z.coerce.number().int().min(100).max(1_000).default(500),
   leaseMs: z.coerce.number().int().min(5_000).max(120_000).default(15_000),
@@ -53,6 +54,7 @@ export function parseCompanySupervisorConfig(env: Readonly<Record<string, string
     mode: env.OPS_CODEX_MODE,
     ceoThreadId: env.OPS_CODEX_CEO_THREAD_ID || undefined,
     codexCommand: env.OPS_CODEX_COMMAND,
+    projectRoot: env.COMPANY_OS_PROJECT_ROOT,
     ceoModel: env.OPS_MODEL_EXPERT,
     pollMs: env.OPS_SUPERVISOR_POLL_MS,
     leaseMs: env.OPS_SUPERVISOR_LEASE_MS,
@@ -62,7 +64,7 @@ export function parseCompanySupervisorConfig(env: Readonly<Record<string, string
   if (config.mode === "app-server-stdio" && !config.ceoThreadId) {
     throw new Error("OPS_CODEX_CEO_THREAD_ID_REQUIRED");
   }
-  if (config.mode === "app-server-stdio" && Object.keys(config.agentThreadIds).length !== 10) {
+  if (config.mode === "app-server-stdio" && Object.keys(config.agentThreadIds).length !== 11) {
     throw new Error("OPS_CODEX_ALL_AGENT_THREAD_IDS_REQUIRED");
   }
   return config;
@@ -77,10 +79,10 @@ export async function bootstrapCeoInstance(pool: Pool, config: CompanySupervisor
   );
   const active = existing.rows[0];
   if (active) {
-    if (active.thread_id !== threadId) throw new Error("CEO_THREAD_MAPPING_CONFLICT");
+    if (active.thread_id !== threadId) await assertThreadReplacementSafe(pool, active.id, "CEO_THREAD_MAPPING_CONFLICT");
     await pool.query(
-      "UPDATE cockpit_agent_instances SET heartbeat_at = now(), state = 'waiting' WHERE id = $1",
-      [active.id],
+      "UPDATE cockpit_agent_instances SET thread_id = $2, heartbeat_at = now(), state = 'waiting' WHERE id = $1",
+      [active.id, threadId],
     );
     return active.id;
   }
@@ -116,7 +118,7 @@ export async function bootstrapSpecialistInstances(pool: Pool, config: CompanySu
     );
     if (existing.rows[0]) {
       if (config.mode !== "demo" && existing.rows[0].thread_id !== threadId) {
-        throw new Error(`AGENT_THREAD_MAPPING_CONFLICT_${agentId}`);
+        await assertThreadReplacementSafe(pool, existing.rows[0].id, `AGENT_THREAD_MAPPING_CONFLICT_${agentId}`);
       }
       await pool.query(
         "UPDATE cockpit_agent_instances SET thread_id = $2, heartbeat_at = now(), state = 'waiting' WHERE id = $1",
@@ -140,6 +142,16 @@ export async function bootstrapSpecialistInstances(pool: Pool, config: CompanySu
     );
     if (!inserted.rows[0]) throw new Error(`AGENT_THREAD_MAPPING_CONFLICT_${agentId}`);
   }
+}
+
+async function assertThreadReplacementSafe(pool: Pool, instanceId: string, conflictCode: string): Promise<void> {
+  const activeRun = await pool.query(
+    `SELECT 1 FROM cockpit_runs
+     WHERE agent_instance_id = $1 AND state IN ('dispatching','working','interruption_requested')
+     LIMIT 1`,
+    [instanceId],
+  );
+  if (activeRun.rows[0]) throw new Error(conflictCode);
 }
 
 export async function runSupervisorLoop(input: {
@@ -169,6 +181,7 @@ export async function runSupervisorLoop(input: {
     } else if (!transport) {
       client = client ?? new CodexAppServerStdioClient({
         command: input.config.codexCommand,
+        workspaceRoot: input.config.projectRoot,
         onLifecycleEvent: (event) => {
           lifecycleQueue.push(event);
         },

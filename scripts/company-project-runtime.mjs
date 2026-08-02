@@ -74,6 +74,14 @@ try {
   ));
   children[1].once("exit", () => { if (!stopped) void reportFailure("PROJECT_SUPERVISOR_EXITED").then(() => shutdown(1)); });
   await new Promise((resolvePromise, reject) => setTimeout(() => children[1].exitCode === null ? resolvePromise() : reject(new Error("PROJECT_SUPERVISOR_EXITED")), 1_500));
+  children.push(startChild(
+    "video-worker",
+    ["node_modules/tsx/dist/cli.mjs", "watch", "src/video-worker/index.ts"],
+    runtimeEnv,
+    stateDir,
+  ));
+  children[2].once("exit", () => { if (!stopped) void reportFailure("PROJECT_VIDEO_WORKER_EXITED").then(() => shutdown(1)); });
+  await new Promise((resolvePromise, reject) => setTimeout(() => children[2].exitCode === null ? resolvePromise() : reject(new Error("PROJECT_VIDEO_WORKER_EXITED")), 1_500));
   await heartbeat("online", projectDatabaseUrl);
   timer = setInterval(() => void heartbeat("online", projectDatabaseUrl), 10_000);
 } catch (error) {
