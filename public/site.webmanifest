@@ -1,0 +1,9 @@
+{
+  "name": "Company OS",
+  "short_name": "Company OS",
+  "start_url": "/ops",
+  "display": "standalone",
+  "background_color": "#070a10",
+  "theme_color": "#090c12",
+  "lang": "fr"
+}

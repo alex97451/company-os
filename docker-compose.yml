@@ -1,0 +1,57 @@
+name: company-os
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: company_os
+      POSTGRES_USER: company_os
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.local}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - company-os-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U company_os -d company_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-company_os_local_only}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.local}
+    ports:
+      - "127.0.0.1:9002:9000"
+      - "127.0.0.1:9003:9001"
+    volumes:
+      - company-os-minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-company_os_local_only}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.local}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        && mc mb --ignore-existing local/company-os-system
+        && mc anonymous set none local/company-os-system
+    restart: "no"
+
+volumes:
+  company-os-postgres:
+  company-os-minio:

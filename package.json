@@ -1,0 +1,61 @@
+{
+  "name": "company-os",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev --turbopack --hostname 127.0.0.1 -p 3020",
+    "dev:lan": "next dev --turbopack --hostname 0.0.0.0 -p 3020",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "start:container": "next start --hostname 0.0.0.0",
+    "ops:setup": "node scripts/setup-local-ops.mjs",
+    "ops:ensure-connectors": "node scripts/setup-local-ops.mjs --ensure-connectors",
+    "ops:rotate": "node scripts/setup-local-ops.mjs --rotate",
+    "ops:rotate-owner": "node scripts/setup-local-ops.mjs --rotate-owner",
+    "ops:start-web": "node --env-file=.env.local scripts/start-local-web.mjs",
+    "ops:stop-web": "node scripts/stop-local-web.mjs",
+    "ops:restart-web": "node --env-file=.env.local scripts/restart-local-web.mjs",
+    "ops:enable-lan": "node scripts/setup-local-ops.mjs --enable-lan-operator",
+    "ops:verify-lan": "node --env-file=.env.local scripts/verify-lan-operator.mjs",
+    "ops:start-all": "node --env-file=.env.local scripts/start-local-stack.mjs",
+    "ops:stop-all": "node scripts/stop-local-stack.mjs",
+    "ops:start-supervisor": "node scripts/start-local-supervisor.mjs",
+    "ops:migrate": "node --env-file=.env.local scripts/apply-cockpit-migration.mjs",
+    "ops:supervisor": "tsx --env-file=.env.local src/company-supervisor/index.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test e2e/ops-cockpit.spec.ts",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "lucide-react": "1.25.0",
+    "next": "16.2.10",
+    "pg": "8.22.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "26.1.1",
+    "@types/pg": "8.20.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.2.10",
+    "jsdom": "29.1.1",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}

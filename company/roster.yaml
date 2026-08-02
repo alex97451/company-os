@@ -1,0 +1,71 @@
+version: 1
+internal_only: true
+project_product_pipeline_is_agents: false
+default_external_authority: none
+advertising_spend_cap_minor: 0
+currency_caps:
+  GBP: 0
+  USD: 0
+  EUR: 0
+owner_gated_risks:
+  - financial
+  - advertising
+  - production
+  - contractual
+  - unusual_outbound
+agents:
+  - id: ceo
+    manifest: agents/ceo.md
+    level: draft
+    cadence: daily_0800_utc_and_material_events
+    verifier: owner_or_domain_blocker
+  - id: product
+    manifest: agents/product.md
+    level: draft
+    cadence: daily_synthesis_weekly_roadmap
+    verifier: qa_safety
+  - id: design_conversion
+    manifest: agents/design-conversion.md
+    level: stage
+    cadence: weekly_audit_and_experiment_trigger
+    verifier: qa_safety
+  - id: engineering
+    manifest: agents/engineering.md
+    level: stage
+    cadence: event_driven_one_active_change
+    verifier: qa_safety
+  - id: qa_safety
+    manifest: agents/qa-safety.md
+    level: stage
+    cadence: every_change_daily_fixture_watch
+    verifier: reliability_privacy
+  - id: growth
+    manifest: agents/growth.md
+    level: draft
+    cadence: daily_funnel_weekly_experiments
+    verifier: finance_risk
+  - id: content_brand
+    manifest: agents/content-brand.md
+    level: draft
+    cadence: twice_weekly_and_launch_trigger
+    verifier: qa_safety
+  - id: sales_partnerships
+    manifest: agents/sales-partnerships.md
+    level: draft
+    cadence: weekly_pipeline_review
+    verifier: finance_risk
+  - id: customer_care
+    manifest: agents/customer-care.md
+    level: operate
+    cadence: every_15_minutes_and_case_event
+    verifier: qa_safety
+  - id: finance_risk
+    manifest: agents/finance-risk.md
+    level: observe
+    cadence: daily_close_and_payment_event
+    verifier: ceo
+  - id: reliability_privacy
+    manifest: agents/reliability-privacy.md
+    level: operate
+    cadence: continuous_alerts_15_minute_privacy_sweep
+    verifier: qa_safety

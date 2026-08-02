@@ -1,0 +1,60 @@
+version: company-os-model-router-v1
+owner_interface: ceo_only
+selection_mode: deterministic
+manual_override:
+  allowed: true
+  location: advanced_cockpit_details
+  audited: true
+  may_bypass_risk_floor: false
+
+profiles:
+  rapid:
+    model_env: OPS_MODEL_RAPID
+    default_model: gpt-5.6-terra
+    reasoning_effort: low
+    intended_work: [classification, summaries, routine_research, small_edits]
+  balanced:
+    model_env: OPS_MODEL_BALANCED
+    default_model: gpt-5.6-terra
+    reasoning_effort: medium
+    intended_work: [normal_engineering, product, content, routine_operations]
+  expert:
+    model_env: OPS_MODEL_EXPERT
+    default_model: gpt-5.6-sol
+    reasoning_effort: high
+    intended_work: [architecture, security, finance, complex_analysis]
+  critical:
+    model_env: OPS_MODEL_CRITICAL
+    default_model: gpt-5.6-sol
+    reasoning_effort: xhigh
+    intended_work: [high_risk_change, incident, irreversible_action_preparation]
+    distinct_verifier_required: true
+
+score_thresholds:
+  rapid_max: 24
+  balanced_max: 54
+  expert_max: 79
+  critical_min: 80
+
+factors:
+  risk: [read, draft, write_safe, financial, advertising, production]
+  complexity: 1_to_5
+  context_tokens: bounded
+  urgency: [low, normal, high, immediate]
+  remaining_budget: required
+
+risk_floor:
+  financial: expert
+  advertising: expert
+  production: expert
+
+fallback:
+  permitted_only_before_dispatch: true
+  forbidden_when_dispatch_uncertain: true
+  reconciliation_required_on_unknown_outcome: true
+
+budgets:
+  authority: postgres_cockpit_budgets
+  scope: company:model:daily
+  external_spend_cap: 0
+  monetary_usage_label: measured_or_estimated_with_provenance
