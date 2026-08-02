@@ -105,8 +105,9 @@ export class CompanyProjectRepository {
               project.manifest ->> 'initializedAt' AS initialized_at
          FROM company_projects project
          LEFT JOIN company_project_runtimes runtime ON runtime.project_id = project.id
+        WHERE ($2 = true OR project.id = $1)
         ORDER BY (project.id = $1) DESC, project.display_name`,
-      [currentId],
+      [currentId, currentId === (env.COMPANY_OS_REGISTRY_PROJECT_ID?.trim() || "company-os")],
     );
     return result.rows.map((row) => ({
       id: row.id,
