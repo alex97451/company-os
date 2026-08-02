@@ -106,6 +106,8 @@ function parseLogs(stderr: string, stdout: string): LogEntry[] {
           raw: sanitized,
         });
       } catch {
+        const safeRuntimeLine = sanitizeRuntimeLine(sanitized);
+        if (!safeRuntimeLine) continue;
         const level: "info" | "warn" | "error" = /error|failed|exception/i.test(sanitized)
           ? "error"
           : /warn|warning/i.test(sanitized)
@@ -116,8 +118,8 @@ function parseLogs(stderr: string, stdout: string): LogEntry[] {
           timestamp: new Date().toISOString(),
           source: "supervisor",
           level,
-          message: truncate(sanitized, 1_000),
-          raw: sanitized,
+          message: truncate(safeRuntimeLine, 1_000),
+          raw: safeRuntimeLine,
         });
       }
     }
@@ -127,6 +129,17 @@ function parseLogs(stderr: string, stdout: string): LogEntry[] {
   processFile(stderr, "error");
 
   return entries.slice(-150);
+}
+
+function sanitizeRuntimeLine(line: string): string | null {
+  if (/^\d{2}:\d{2}:\d{2} \[tsx\]/.test(line)) return line;
+  if (/terminating connection due to administrator command/i.test(line)) {
+    return "PostgreSQL a fermé une ancienne connexion pendant un redémarrage local.";
+  }
+  if (/Unhandled ['\"]error['\"] event/i.test(line)) {
+    return "Une ancienne connexion PostgreSQL a été interrompue ; le superviseur a été relancé.";
+  }
+  return null;
 }
 
 function sanitizeSecrets(input: string): string {

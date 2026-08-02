@@ -114,11 +114,13 @@ export class CompanyProjectRepository {
       kind: row.kind,
       workspacePath: row.workspace_path,
       isolationMode: row.isolation_mode,
-      status: row.effective_status,
+      status: row.id === currentId && env.COMPANY_OS_RUNTIME_ID ? "online" : row.effective_status,
       current: row.id === currentId,
-      lastHeartbeatAt: row.last_heartbeat_at?.toISOString() ?? null,
+      lastHeartbeatAt: row.id === currentId && env.COMPANY_OS_RUNTIME_ID
+        ? new Date().toISOString()
+        : row.last_heartbeat_at?.toISOString() ?? null,
       lastErrorCode: row.last_error_code,
-      runtimeState: row.runtime_state,
+      runtimeState: row.id === currentId && env.COMPANY_OS_RUNTIME_ID ? "online" : row.runtime_state,
       webPort: row.web_port,
       cockpitUrl: row.web_port ? `http://localhost:${row.web_port}/ops` : null,
       initializedAt: row.initialized_at,

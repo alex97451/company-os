@@ -13,7 +13,14 @@ export function createDatabasePool(env: NodeJS.ProcessEnv = process.env): Pool {
     application_name: env.DATABASE_APPLICATION_NAME ?? "company-os",
     ssl: env.DATABASE_SSL === "true" ? { rejectUnauthorized: true } : undefined,
   };
-  return new Pool(config);
+  const pool = new Pool(config);
+  pool.on("error", (error: Error & { code?: string }) => {
+    const detail = typeof error.code === "string" && /^[A-Z0-9]{3,12}$/.test(error.code)
+      ? error.code
+      : "CONNECTION_INTERRUPTED";
+    console.error(JSON.stringify({ level: "error", code: "database_idle_client_error", detail }));
+  });
+  return pool;
 }
 
 export function getDatabasePool(): Pool {
