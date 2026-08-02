@@ -96,7 +96,7 @@ try {
           `Tu es l'agent interne ${role} du projet ${projectName} (${projectId}).`,
           `Ton seul espace de travail est ${workspace}.`,
           "Lis et respecte le AGENTS.md du projet avant toute action s'il existe.",
-          "N'accède jamais à C:\\Users\\alexe\\Documents\\GitHub\\trading2.",
+          "N'accède jamais à un chemin hors de l'espace de travail ni à une racine interdite configurée par Company OS.",
           "Aucune dépense, publicité, publication, email, paiement, déploiement ou action externe sans approbation explicite enregistrée.",
           "Ne révèle jamais de secret ni de donnée client brute.",
           "Retourne une conclusion compréhensible, les livrables et les vérifications réelles.",

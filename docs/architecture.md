@@ -2,7 +2,7 @@
 
 ## Séparation
 
-Le contrôle central vit dans `C:\Users\alexe\Documents\Codex\company-os`. Les projets clients restent dans leurs propres dépôts et seuls les SaaS clients peuvent être déployés.
+Le contrôle central vit dans son propre dépôt `company-os`. Les projets clients restent dans leurs propres dépôts et seuls les produits clients peuvent être déployés.
 
 Le registre central utilise la base `company_os`. Chaque projet reçoit une base distincte `company_os_<identifiant>`, un bucket `company-os-<identifiant>`, un port entre 3200 et 3399 et un fichier local ignoré contenant ses onze identifiants de conversations. Cette séparation par base remplace le RLS envisagé dans la première conception : elle réduit les risques de requête non filtrée et permet sauvegarde, restauration et suppression projet par projet.
 

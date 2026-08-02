@@ -3,7 +3,7 @@
 ## Scope boundary
 
 - This repository contains the local-only Company OS control plane. Customer SaaS source belongs in connected project repositories, never here.
-- Never read, write, run, import, move, delete or otherwise modify `C:\Users\alexe\Documents\GitHub\trading2` or any of its files.
+- Never access a path outside the configured project roots or any path listed in `COMPANY_PROJECTS_FORBIDDEN_ROOTS`.
 - Never commit secrets. Add new configuration names to `.env.example` only.
 
 ## System boundary

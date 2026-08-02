@@ -59,7 +59,7 @@ if (sanitize) {
     ["COMPANY_OS_PROJECT_NAME", "Company OS"],
     ["COMPANY_OS_PROJECT_ROOT", process.cwd()],
     ["COMPANY_PROJECTS_ALLOWED_ROOTS", resolve(process.cwd(), "..")],
-    ["COMPANY_PROJECTS_FORBIDDEN_ROOTS", resolve(process.cwd(), "..", "..", "GitHub", "trading2")],
+    ["COMPANY_PROJECTS_FORBIDDEN_ROOTS", resolve(process.cwd(), "..", "private")],
     ["POSTGRES_PASSWORD", postgresPassword],
     ["DATABASE_URL", `postgresql://company_os:${postgresPassword}@localhost:5434/company_os`],
     ["DATABASE_SSL", "false"],

@@ -42,8 +42,11 @@ describe("autonomous company policy gateway", () => {
     expect(evaluateAgentAction(request(), { agent: null })).toMatchObject({ allowed: false, code: "DENY_UNKNOWN_AGENT" });
   });
 
-  it("permanently denies any trading2 scope", () => {
-    expect(evaluateAgentAction(request({ scope: "repo:C:\\Users\\alexe\\Documents\\GitHub\\trading2" })))
+  it("denies a scope matching a configured forbidden root", () => {
+    expect(evaluateAgentAction(
+      request({ scope: "repo:C:\\CompanyProjects\\restricted" }),
+      { forbiddenScopeMarkers: ["C:\\CompanyProjects\\restricted"] },
+    ))
       .toMatchObject({ allowed: false, code: "DENY_SCOPE" });
   });
 

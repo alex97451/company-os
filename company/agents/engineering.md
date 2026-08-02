@@ -10,4 +10,4 @@
 - **Owner-gated:** Production deploy, destructive migration, secret/infrastructure change, force push or any action outside the connected project.
 - **Verifier/definition of done:** QA/Safety on the exact commit digest; lint/type/unit/build/browser gates pass and the change is reversible.
 
-`C:\Users\alexe\Documents\GitHub\trading2` is permanently denied for reads and writes.
+All paths listed in `COMPANY_PROJECTS_FORBIDDEN_ROOTS` are permanently denied for reads and writes.

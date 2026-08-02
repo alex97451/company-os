@@ -8,14 +8,14 @@ Statut : conception initiale validée, extraction implémentée et vérifiée lo
 
 - Ops devient un projet local indépendant des SaaS qu'il pilote.
 - Chaque projet connecté possède son propre CEO, ses dix spécialistes, ses conversations, ses travaux, ses décisions, ses livrables et sa mémoire.
-- Wedding Quote Check et Cookie ne doivent partager aucun contexte métier ou état opérationnel.
+- Deux projets connectés ne doivent partager aucun contexte métier ou état opérationnel.
 - Une seule interface locale permet de sélectionner et piloter les entreprises.
 - Les SaaS peuvent être déployés séparément ; aucun code Ops ne doit entrer dans leurs builds publics.
 - Aucune dépense, action externe ou secret versionné n'est autorisé par cette extraction.
 
 ## Hypothèses et contraintes non fonctionnelles
 
-- Le nouveau projet cible `C:\Users\alexe\Documents\Codex\company-os`.
+- Le contrôle central cible un dépôt local indépendant nommé `company-os`.
 - PostgreSQL reste local et partagé avec `project_id` et Row-Level Security (RLS). MinIO utilise un bucket et des identifiants restreints distincts par projet ; seuls les composants infrastructure possèdent l'accès administratif.
 - Le plafond initial est de 20 projets actifs, 220 agents configurés et 4 tours Codex concurrents au total, avec une limite par projet.
 - Une panne d'un runtime projet ne doit pas interrompre les autres projets. Chaque projet possède sa file, ses délais, son circuit breaker et sa limite de concurrence.
@@ -63,14 +63,14 @@ Chaque étape possède un identifiant d'opération et un état durable ; `Repren
 2. Copier puis adapter le code Ops dans le nouveau projet.
 3. Déclarer les volumes Docker existants comme volumes externes nommés, vérifier leurs identifiants et effectuer une sauvegarde réelle et restaurable de PostgreSQL et MinIO au même point logique.
 4. Ajouter les colonnes de périmètre en mode nullable en conservant la compatibilité de l'ancien cockpit.
-5. Classer les données existantes : Wedding Quote Check, Cookie ou infrastructure globale. Les données ambiguës restent en quarantaine.
+5. Classer les données existantes par projet ou comme infrastructure globale. Les données ambiguës restent en quarantaine.
 6. Activer les relations composées, contraintes et politiques RLS après vérification du backfill.
-7. Provisionner Wedding Quote Check et Cookie comme deux entreprises isolées.
+7. Provisionner deux projets pilotes comme deux entreprises isolées.
 8. Vérifier les deux cockpits, historiques, CEO et équipes.
 9. Geler les nouvelles commandes, attendre les états terminaux, transférer la lease de leadership puis basculer le port.
-10. Retirer le code Ops de Wedding Quote Check après une période de validation locale et une sauvegarde finale vérifiée.
+10. Retirer l’ancien code Ops du dépôt client après une période de validation locale et une sauvegarde finale vérifiée.
 
-Les anciennes commandes échouées sont classées uniquement lorsque leur provenance est certaine et ne sont jamais rejouées. La sauvegarde sert à la reprise après sinistre, pas au rollback courant. Après bascule, la base nouvelle reste la source de vérité : une migration inverse préservant toutes les écritures récentes réactive Wedding Quote Check et gèle les autres projets sans supprimer leurs données. RPO cible : zéro écriture validée perdue. RTO cible : 15 minutes. La fenêtre de retour arrière se termine après 24 heures de fonctionnement validé et accord explicite du propriétaire.
+Les anciennes commandes échouées sont classées uniquement lorsque leur provenance est certaine et ne sont jamais rejouées. La sauvegarde sert à la reprise après sinistre, pas au rollback courant. Après bascule, la base nouvelle reste la source de vérité : une migration inverse préservant toutes les écritures récentes réactive le projet pilote et gèle les autres projets sans supprimer leurs données. RPO cible : zéro écriture validée perdue. RTO cible : 15 minutes. La fenêtre de retour arrière se termine après 24 heures de fonctionnement validé et accord explicite du propriétaire.
 
 Le propriétaire accède à tous les projets. Un opérateur n'accède qu'aux projets de sa table d'appartenance et ne peut effectuer d'action sensible. PostgreSQL utilise un rôle sans `SUPERUSER` ni `BYPASSRLS`; toutes les tables métier appliquent `ENABLE ROW LEVEL SECURITY` puis `FORCE ROW LEVEL SECURITY`. Une variable projet absente, vide ou invalide refuse la transaction. Le pool n'exécute les dépôts métier que dans une transaction ayant fixé le projet et l'appartenance de session.
 
@@ -92,7 +92,7 @@ L'expiration des événements et mémoires temporaires ne supprime pas les concl
 
 ## Critères d'acceptation
 
-- Wedding Quote Check et Cookie ont deux cockpits entièrement distincts.
+- Deux projets pilotes ont des cockpits entièrement distincts.
 - Aucune requête ne peut lire ou modifier les données d'un autre projet.
 - Chaque projet possède onze conversations Codex propres.
 - Un seul superviseur central dessert plusieurs entreprises sans mélange de contexte.
@@ -108,7 +108,7 @@ L'expiration des événements et mémoires temporaires ne supprime pas les concl
 
 | Décision | Alternatives | Motif | Objections | Résolution |
 |---|---|---|---|---|
-| Extraire Ops dans `company-os` | Ops dans Wedding Quote Check | Découpler le système d'exploitation des SaaS | Volumes, secrets et frontière d'exécution ambigus | Volumes externes vérifiés, secrets typés par périmètre et manifeste sans commande shell libre |
+| Extraire Ops dans `company-os` | Ops dans le premier produit | Découpler le système d'exploitation des projets clients | Volumes, secrets et frontière d'exécution ambigus | Volumes externes vérifiés, secrets typés par périmètre et manifeste sans commande shell libre |
 | Superviseur central | Un superviseur par projet | Réduire processus et maintenance | Point de panne, double distribution, reprise incertaine | Lanes et circuits par projet, fencing vérifié à chaque mutation, effets idempotents et réconciliation sans rejeu automatique |
 | PostgreSQL partagé avec `project_id` | Une base par projet | Exploitation locale simple | RLS contournable par rôle ou contexte absent | Rôle non privilégié, `FORCE RLS`, transaction obligatoire et refus sans contexte valide |
 | Un bucket MinIO par projet | Préfixes dans un bucket partagé | Imposer l'isolation dans MinIO | Adaptateur seul contournable | Comptes de service restreints, import direct interdit et sauvegarde réelle testée |

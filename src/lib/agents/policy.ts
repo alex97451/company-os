@@ -8,7 +8,6 @@ import {
 } from "./registry";
 
 const OWNER_GATED_RISKS = new Set<RiskClass>(["financial", "advertising", "production"]);
-const FORBIDDEN_SCOPE_MARKERS = ["trading2", "C:\\Users\\alexe\\Documents\\GitHub\\trading2"];
 
 export type CircuitBreakerState = {
   state: "closed" | "open";
@@ -68,6 +67,7 @@ export type EvaluateAgentActionContext = {
   agent?: CompanyAgentDefinition | null;
   usage?: AgentUsage;
   circuitBreaker?: CircuitBreakerState;
+  forbiddenScopeMarkers?: readonly string[];
   now?: Date;
 };
 
@@ -98,7 +98,8 @@ export function evaluateAgentAction(
     return deny("DENY_INVALID_REQUEST", "Call count and estimated cost must be non-negative bounded integers.");
   }
   if (circuit.state === "open") return deny("DENY_CIRCUIT_OPEN", circuit.reason ?? "The global circuit breaker is open.");
-  if (FORBIDDEN_SCOPE_MARKERS.some((marker) => request.scope.toLowerCase().includes(marker.toLowerCase()))) {
+  const forbiddenScopeMarkers = context.forbiddenScopeMarkers ?? configuredForbiddenScopeMarkers();
+  if (forbiddenScopeMarkers.some((marker) => request.scope.toLowerCase().includes(marker.toLowerCase()))) {
     return deny("DENY_SCOPE", "The requested scope is permanently forbidden.");
   }
   if (!scopeAllowed(request.scope, agent.allowedScopes)) return deny("DENY_SCOPE", "The requested scope is outside the agent allowlist.");
@@ -123,6 +124,13 @@ export function evaluateAgentAction(
     }
   }
   return { allowed: true, code: "ALLOW", reason: "Policy checks passed; reserve budget atomically before execution.", requiresApproval: false };
+}
+
+function configuredForbiddenScopeMarkers(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.COMPANY_PROJECTS_FORBIDDEN_ROOTS ?? "")
+    .split(";")
+    .map((marker) => marker.trim())
+    .filter(Boolean);
 }
 
 export type PolicyReservation = { reservationId: string; approvalId: string | null };

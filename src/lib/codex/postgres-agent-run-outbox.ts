@@ -506,7 +506,7 @@ function specialistPrompt(row: z.infer<typeof claimRowSchema>): string {
     `You are the internal ${projectName} ${row.agentId} agent.`,
     `Work only inside ${workspace} and follow its AGENTS.md.`,
     "Do not spend money, deploy production, launch ads, contact people, or perform irreversible financial actions.",
-    "Never read or modify the separate trading2 repository.",
+    "Never access paths outside the assigned workspace or any root forbidden by Company OS.",
     `Task: ${row.title}`,
     `Required outcome: ${row.intendedOutcome}`,
     `Risk class: ${row.riskClass}`,

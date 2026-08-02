@@ -1,7 +1,7 @@
 # Démarrage d’un projet connecté
 
 - [ ] Confirmer l’identifiant, le nom et le dossier autorisé du projet.
-- [ ] Refuser toute racine interdite, notamment `C:\Users\alexe\Documents\GitHub\trading2`.
+- [ ] Refuser toute racine déclarée dans `COMPANY_PROJECTS_FORBIDDEN_ROOTS`.
 - [ ] Créer la base, le bucket, le port et les onze conversations dédiés.
 - [ ] Lire le `AGENTS.md` du projet s’il existe.
 - [ ] Garder le travail externe et le budget publicitaire désactivés par défaut.
