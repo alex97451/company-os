@@ -87,6 +87,11 @@ export function parseSpecialistResult(value: string): z.infer<typeof specialistR
   return specialistResultSchema.parse(JSON.parse(value));
 }
 
+export function hasSpecialistResultPolicyViolation(result: z.infer<typeof specialistResultSchema>): boolean {
+  return Boolean(findOwnerMessagePolicyViolation(result.summary)
+    || result.evidence.some((item) => findOwnerMessagePolicyViolation(item)));
+}
+
 type AcceptedReceipt = Extract<DispatchReceipt, { status: "accepted" }>;
 type RejectedReceipt = Extract<DispatchReceipt, { status: "rejected" }>;
 
@@ -374,7 +379,9 @@ export class PostgresAgentRunOutbox implements CodexDispatchOutbox {
           return "reconciliation_required";
         }
       }
-      if (findOwnerMessagePolicyViolation(summary)) {
+      const ownerVisibleEvidence = specialistResult?.evidence ?? [];
+      if (findOwnerMessagePolicyViolation(summary)
+        || (specialistResult && hasSpecialistResultPolicyViolation(specialistResult))) {
         await markRunUncertain(client, run.id, "sensitive_result_rejected");
         return "reconciliation_required";
       }
@@ -431,7 +438,7 @@ export class PostgresAgentRunOutbox implements CodexDispatchOutbox {
       await client.query("UPDATE cockpit_outbox SET state = 'completed' WHERE run_id = $1 AND state = 'sent'", [run.id]);
       await client.query("UPDATE cockpit_agent_instances SET state = 'waiting', heartbeat_at = now() WHERE id = $1", [run.agent_instance_id]);
       await event(client, "agent.run.completed", run.id, {
-        taskId: run.task_id, summary, demo: input.demo,
+        taskId: run.task_id, summary, evidence: ownerVisibleEvidence, demo: input.demo,
         ...(verifierVerdict ? { verdict: verifierVerdict.verdict } : {}),
       });
       const contribution = await client.query<{ id: string; session_id: string; author_agent_id: string }>(

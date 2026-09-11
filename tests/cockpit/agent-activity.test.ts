@@ -19,6 +19,9 @@ const engineering: AgentActivitySource = {
   modelProfile: "expert",
   startedAt: new Date("2026-07-29T19:58:00.000Z"),
   lastSignalAt: new Date("2026-07-29T19:59:00.000Z"),
+  conclusion: null,
+  deliverables: [],
+  isSimulation: false,
 };
 
 function runEvent(overrides: Partial<ActivityEventSource> = {}): ActivityEventSource {
@@ -68,10 +71,17 @@ describe("agent activity projection", () => {
   it("allows only the policy-checked completion summary as event detail", () => {
     const activity = buildAgentActivities([engineering], [runEvent({
       eventType: "agent.run.completed",
-      safePayload: { summary: "Tests locaux terminés.", demo: false },
+      safePayload: {
+        summary: "Tests locaux terminés.",
+        evidence: ["La suite de tests locale est validée."],
+        demo: false,
+      },
     })])[0];
 
     expect(activity?.events[0]?.detail).toBe("Tests locaux terminés.");
+    expect(activity?.conclusion).toBe("Tests locaux terminés.");
+    expect(activity?.deliverables).toEqual(["La suite de tests locale est validée."]);
+    expect(activity?.activityKind).toBe("real");
   });
 
   it("shows a corrected historical conclusion as the authoritative detail", () => {
@@ -102,5 +112,67 @@ describe("agent activity projection", () => {
 
   it("maps uncertain and reconciliation states to an explicit problem phase", () => {
     expect(phaseForActivity({ agentStatus: "uncertain", taskStatus: "problem", runState: "reconciliation_required" })).toBe("problem");
+  });
+
+  it("distinguishes waiting, simulation and failure without guessing from the interface", () => {
+    const waiting: AgentActivitySource = {
+      ...engineering,
+      agentStatus: "waiting",
+      taskStatus: "queued",
+      runState: "queued",
+      isSimulation: false,
+    };
+    const simulation: AgentActivitySource = { ...engineering, isSimulation: true };
+    const failure: AgentActivitySource = {
+      ...engineering,
+      agentStatus: "problem",
+      taskStatus: "problem",
+      runState: "blocked",
+      isSimulation: true,
+    };
+
+    expect(buildAgentActivities([waiting], [])[0]).toMatchObject({ activityKind: "waiting" });
+    expect(buildAgentActivities([simulation], [])[0]).toMatchObject({ activityKind: "simulation" });
+    expect(buildAgentActivities([failure], [])[0]).toMatchObject({
+      activityKind: "failure",
+      currentStep: "Le travail est bloqué ou a échoué et demande une intervention.",
+    });
+  });
+
+  it("projects only task-correlated owner decisions in plain French", () => {
+    const unrelatedTaskId = "55555555-5555-4555-8555-555555555555";
+    const events = [
+      runEvent({ eventType: "model.routing.selected" }),
+      runEvent({
+        id: "66666666-6666-4666-8666-666666666666",
+        eventType: "approval.approved",
+        aggregateType: "approval",
+        aggregateId: "77777777-7777-4777-8777-777777777777",
+        safePayload: { taskId: engineering.taskId },
+      }),
+      runEvent({
+        id: "88888888-8888-4888-8888-888888888888",
+        eventType: "approval.refused",
+        aggregateType: "approval",
+        aggregateId: "99999999-9999-4999-8999-999999999999",
+        safePayload: { taskId: unrelatedTaskId },
+      }),
+    ];
+
+    expect(buildAgentActivities([engineering], events)[0]?.decisions).toEqual([
+      expect.objectContaining({ kind: "resources_selected" }),
+      expect.objectContaining({ kind: "owner_approved" }),
+    ]);
+  });
+
+  it("drops sensitive historical evidence from the owner projection", () => {
+    const activity = buildAgentActivities([{
+      ...engineering,
+      conclusion: "Travail terminé.",
+      deliverables: ["contact@example.com", "Contrôle local terminé."],
+    }], [])[0];
+
+    expect(activity?.deliverables).toEqual(["Contrôle local terminé."]);
+    expect(JSON.stringify(activity)).not.toContain("contact@example.com");
   });
 });

@@ -27,8 +27,10 @@ let timer;
 
 try {
   const projectDatabaseUrl = await ensureProjectDatabase(registryUrl, projectId);
-  ensureProjectBucket(projectId);
   run(process.execPath, ["scripts/apply-cockpit-migration.mjs"], { ...process.env, DATABASE_URL: projectDatabaseUrl });
+  await setInitializationStep("database", "complete", "La base de données isolée est créée et accessible.", "storage", "Préparation du stockage privé du projet.");
+  ensureProjectBucket(projectId);
+  await setInitializationStep("storage", "complete", "Le stockage privé est créé et n’est pas public.", "team", "Création ou reprise des douze conversations Codex dédiées.");
 
   const stateDir = resolve(root, "work", "projects", projectId);
   mkdirSync(stateDir, { recursive: true });
@@ -41,6 +43,7 @@ try {
   ], process.env);
   const threadMap = JSON.parse(provisioned.trim().split(/\r?\n/).filter(Boolean).at(-1));
   const { ceo, ...specialists } = threadMap.threads;
+  await setInitializationStep("team", "complete", "Les douze conversations Codex dédiées ont été vérifiées.", "cockpit", "Démarrage du cockpit et vérification de son signal local.");
   const runtimeEnv = {
     ...process.env,
     APP_URL: `http://localhost:${webPort}`,
@@ -82,11 +85,20 @@ try {
   ));
   children[2].once("exit", () => { if (!stopped) void reportFailure("PROJECT_VIDEO_WORKER_EXITED").then(() => shutdown(1)); });
   await new Promise((resolvePromise, reject) => setTimeout(() => children[2].exitCode === null ? resolvePromise() : reject(new Error("PROJECT_VIDEO_WORKER_EXITED")), 1_500));
+  await waitForProjectReadiness(projectDatabaseUrl, children);
   await heartbeat("online", projectDatabaseUrl);
+  await setInitializationStep("cockpit", "complete", "Le cockpit local, le superviseur et Codex ont fourni des signaux récents.");
+  children.push(startChild(
+    "initial-review",
+    ["node_modules/tsx/dist/cli.mjs", "scripts/run-initial-project-review.ts"],
+    { ...runtimeEnv, COMPANY_OS_REGISTRY_DATABASE_URL: registryUrl },
+    stateDir,
+  ));
   timer = setInterval(() => void heartbeat("online", projectDatabaseUrl), 10_000);
 } catch (error) {
   const code = safeCode(error);
   console.error(JSON.stringify({ level: "error", code }));
+  await failActiveInitializationStep().catch(() => undefined);
   await reportFailure(code);
   await shutdown(1);
 }
@@ -128,6 +140,44 @@ async function reportFailure(code) {
     "UPDATE company_project_runtimes SET state = 'error', process_id = NULL, updated_at = now() WHERE project_id = $1 AND runtime_id = $2",
     [projectId, runtimeId],
   ).catch(() => undefined);
+}
+
+async function setInitializationStep(completedId, completedStatus, completedMessage, nextId, nextMessage) {
+  const result = await registry.query(
+    "SELECT manifest -> 'initialization' AS initialization FROM company_projects WHERE id = $1",
+    [projectId],
+  );
+  const initialization = result.rows[0]?.initialization;
+  if (!initialization || !Array.isArray(initialization.steps)) throw new Error("PROJECT_INITIALIZATION_PROGRESS_MISSING");
+  initialization.state = nextId ? "starting" : "ready";
+  initialization.updatedAt = new Date().toISOString();
+  initialization.steps = initialization.steps.map((step) => {
+    if (step.id === completedId) return { ...step, status: completedStatus, message: completedMessage };
+    if (step.id === nextId) return { ...step, status: "active", message: nextMessage };
+    return step;
+  });
+  await registry.query(
+    "UPDATE company_projects SET manifest = manifest || jsonb_build_object('initialization', $2::jsonb), updated_at = now() WHERE id = $1",
+    [projectId, JSON.stringify(initialization)],
+  );
+}
+
+async function failActiveInitializationStep() {
+  const result = await registry.query(
+    "SELECT manifest -> 'initialization' AS initialization FROM company_projects WHERE id = $1",
+    [projectId],
+  );
+  const initialization = result.rows[0]?.initialization;
+  if (!initialization || !Array.isArray(initialization.steps)) return;
+  initialization.state = "error";
+  initialization.updatedAt = new Date().toISOString();
+  initialization.steps = initialization.steps.map((step) => step.status === "active"
+    ? { ...step, status: "error", message: "Cette étape n’a pas abouti. Corrige la cause indiquée dans Ops puis relance l’initialisation." }
+    : step);
+  await registry.query(
+    "UPDATE company_projects SET manifest = manifest || jsonb_build_object('initialization', $2::jsonb), updated_at = now() WHERE id = $1",
+    [projectId, JSON.stringify(initialization)],
+  );
 }
 
 async function shutdown(code) {
@@ -193,6 +243,39 @@ async function waitForHealth(url, child) {
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
   }
   throw new Error("PROJECT_WEB_HEALTH_TIMEOUT");
+}
+async function waitForProjectReadiness(projectDatabaseUrl, watchedChildren) {
+  const projectPool = new pg.Pool({
+    connectionString: projectDatabaseUrl,
+    max: 1,
+    application_name: `company-os-readiness:${projectId}`,
+  });
+  const deadline = Date.now() + 120_000;
+  try {
+    while (Date.now() < deadline) {
+      if (watchedChildren.some((child) => child.exitCode !== null)) throw new Error("PROJECT_SERVICE_EXITED");
+      try {
+        const result = await projectPool.query(
+          `SELECT component, status, heartbeat_at
+             FROM cockpit_runtime_health
+            WHERE component IN ('supervisor','bridge','codex')`,
+        );
+        const health = new Map(result.rows.map((row) => [row.component, row]));
+        const ready = ["supervisor", "bridge", "codex"].every((component) => {
+          const signal = health.get(component);
+          const heartbeatAt = signal?.heartbeat_at instanceof Date ? signal.heartbeat_at : new Date(signal?.heartbeat_at ?? 0);
+          return signal?.status === "connected" && Date.now() - heartbeatAt.getTime() < 15_000;
+        });
+        if (ready) return;
+      } catch (error) {
+        if (error instanceof Error && error.message === "PROJECT_SERVICE_EXITED") throw error;
+      }
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 500));
+    }
+    throw new Error("PROJECT_SERVICES_HEALTH_TIMEOUT");
+  } finally {
+    await projectPool.end().catch(() => undefined);
+  }
 }
 function run(command, args, env = process.env) {
   const result = spawnSync(command, args, { cwd: root, env, stdio: "inherit", windowsHide: true });

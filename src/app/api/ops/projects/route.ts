@@ -3,8 +3,10 @@ import { getDatabasePool } from "@/lib/db";
 import { apiError, noStoreJson } from "@/lib/http";
 import {
   CompanyProjectRepository,
+  createValidatedProjectProgress,
   configuredProjectRoots,
   initializeCompanyProject,
+  inspectProjectWorkspace,
   registerCompanyProjectSchema,
 } from "@/lib/projects";
 import { assertOwnerMutation, requireOpsSession } from "@/lib/ops/auth";
@@ -32,7 +34,12 @@ export async function POST(request: NextRequest) {
     const input = registerCompanyProjectSchema.parse(await request.json());
     const pool = getDatabasePool();
     const repository = new CompanyProjectRepository(pool);
-    await repository.register(input);
+    const discovery = await inspectProjectWorkspace(input.workspacePath);
+    if (discovery.existingProjectId && discovery.existingProjectId !== input.id) {
+      throw new Error("PROJECT_MANIFEST_ID_MISMATCH");
+    }
+    const progress = createValidatedProjectProgress();
+    await repository.register({ ...input, workspacePath: discovery.canonicalPath }, discovery, progress);
     const initialization = await initializeCompanyProject(pool, input.id);
     return noStoreJson({ ok: true, initialization });
   } catch (error) {

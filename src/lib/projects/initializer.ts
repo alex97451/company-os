@@ -1,10 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import { COMPANY_AGENTS, OWNER_AGENT_PRESENTATION } from "@/lib/agents";
-import { companyProjectManifestSchema, type CompanyProjectManifest } from "./manifest";
-import { assertProjectPathAllowed } from "./path-policy";
+import { inspectProjectWorkspace } from "./discovery";
+import {
+  companyProjectManifestSchema,
+  type CompanyProjectManifest,
+  type ProjectDiscovery,
+  type ProjectInitializationProgress,
+} from "./manifest";
+import { advanceProjectProgress, createValidatedProjectProgress, failProjectProgress } from "./progress";
 import { CompanyProjectRepository } from "./repository";
 
 const BOOTSTRAP_VERSION = 1;
@@ -14,6 +20,8 @@ export type ProjectInitializationResult = {
   state: "starting";
   cockpitUrl: string;
   filesCreated: string[];
+  discovery: ProjectDiscovery;
+  progress: ProjectInitializationProgress;
 };
 
 export async function initializeCompanyProject(
@@ -24,12 +32,19 @@ export async function initializeCompanyProject(
   const repository = new CompanyProjectRepository(pool);
   const currentId = env.COMPANY_OS_PROJECT_ID?.trim() || "company-os";
   if (projectId === currentId) throw new Error("CURRENT_PROJECT_ALREADY_INITIALIZED");
+  let progress: ProjectInitializationProgress | null = null;
 
   try {
     const project = await repository.getRegistered(projectId, env);
-    const root = assertProjectPathAllowed(await realpath(project.workspacePath), env);
-    const rootStat = await stat(root);
-    if (!rootStat.isDirectory()) throw new Error("PROJECT_PATH_NOT_DIRECTORY");
+    const discovery = await inspectProjectWorkspace(project.workspacePath, env);
+    const root = discovery.canonicalPath;
+    progress = advanceProjectProgress(
+      createValidatedProjectProgress(),
+      "workspace_analysis",
+      "Le dossier a été analysé sans modifier ses fichiers.",
+      "local_files",
+      "Company OS prépare uniquement les fichiers locaux absents.",
+    );
 
     const filesCreated = await scaffoldProject(root, {
       version: 1,
@@ -40,16 +55,35 @@ export async function initializeCompanyProject(
       companyDirectory: ".company-os",
       agentRoster: ".company-os/agents.json",
       externalWorkEnabledByDefault: false,
-      commands: await detectCommands(root),
+      commands: discovery.commands,
     });
+    progress = advanceProjectProgress(
+      progress,
+      "local_files",
+      filesCreated.length > 0
+        ? `${filesCreated.length} fichier${filesCreated.length > 1 ? "s" : ""} local${filesCreated.length > 1 ? "aux" : ""} créé${filesCreated.length > 1 ? "s" : ""} sans remplacer l’existant.`
+        : "Les fichiers locaux étaient déjà présents et ont été conservés.",
+      "database",
+      "Préparation et migration de la base de données isolée.",
+    );
 
     const runtimeId = `project-${project.id}-${randomUUID()}`;
     const webPort = await repository.allocateRuntimePort(project.id);
-    await repository.markRuntimeStarting(project.id, runtimeId, webPort);
-    return { projectId: project.id, state: "starting", cockpitUrl: `http://localhost:${webPort}/ops`, filesCreated };
+    await repository.markRuntimeStarting(project.id, runtimeId, webPort, discovery, progress);
+    return {
+      projectId: project.id,
+      state: "starting",
+      cockpitUrl: `http://localhost:${webPort}/ops`,
+      filesCreated,
+      discovery,
+      progress,
+    };
   } catch (error) {
     const code = safeErrorCode(error);
-    await repository.markInitializationError(projectId, code);
+    const failedProgress = progress
+      ? failProjectProgress(progress, "Cette étape n’a pas abouti. Corrige la cause indiquée dans Ops puis relance l’initialisation.")
+      : null;
+    await repository.markInitializationError(projectId, code, failedProgress);
     throw new Error(code);
   }
 }
@@ -140,28 +174,6 @@ async function writeIfMissing(
     created.push(path.slice(root.length + 1).replaceAll("\\", "/"));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-}
-
-async function detectCommands(root: string): Promise<CompanyProjectManifest["commands"]> {
-  try {
-    const packagePath = join(root, "package.json");
-    const packageStat = await stat(packagePath);
-    if (packageStat.size > 1_000_000) throw new Error("PROJECT_PACKAGE_FILE_TOO_LARGE");
-    const parsed = JSON.parse(await readFile(packagePath, "utf8")) as { scripts?: Record<string, unknown> };
-    const scripts = parsed.scripts ?? {};
-    return {
-      verify: typeof scripts.verify === "string" ? "npm run verify" : typeof scripts.test === "string" ? "npm test" : "npm run lint --if-present",
-      start: typeof scripts.dev === "string" ? "npm run dev" : typeof scripts.start === "string" ? "npm start" : "À configurer dans Ops",
-      stop: "Arrêter le runtime depuis Ops",
-    };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return {
-      verify: "À configurer dans Ops",
-      start: "À configurer dans Ops",
-      stop: "Arrêter le runtime depuis Ops",
-    };
   }
 }
 

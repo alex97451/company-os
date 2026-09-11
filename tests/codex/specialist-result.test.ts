@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseSpecialistResult } from "@/lib/codex/postgres-agent-run-outbox";
+import {
+  hasSpecialistResultPolicyViolation,
+  parseSpecialistResult,
+} from "@/lib/codex/postgres-agent-run-outbox";
 
 describe("specialist result contract", () => {
   it("accepts an evidenced completed deliverable", () => {
@@ -21,5 +24,15 @@ describe("specialist result contract", () => {
   it("rejects an unstructured conclusion that cannot prove its outcome", () => {
     expect(() => parseSpecialistResult("No file was modified because access was denied."))
       .toThrow();
+  });
+
+  it("flags sensitive evidence before it can become an owner-visible success event", () => {
+    const result = parseSpecialistResult(JSON.stringify({
+      status: "completed",
+      summary: "Le livrable local est prêt.",
+      evidence: ["Contact vérifié : contact@example.com"],
+    }));
+
+    expect(hasSpecialistResultPolicyViolation(result)).toBe(true);
   });
 });

@@ -89,11 +89,18 @@ type AgentActivityDetail = OpsSnapshot["agentActivity"][number];
 const phaseMeta: Record<AgentActivityDetail["phase"], { label: string; tone: string; dot: string }> = {
   idle: { label: "Disponible", tone: "border-slate-500/30 bg-slate-500/10 text-slate-300", dot: "bg-slate-400" },
   preparing: { label: "Préparation", tone: "border-amber-500/30 bg-amber-500/10 text-amber-200", dot: "bg-amber-400" },
-  dispatching: { label: "Transmission à Codex", tone: "border-sky-500/30 bg-sky-500/10 text-sky-200", dot: "bg-sky-400" },
+  dispatching: { label: "Transmission au moteur local", tone: "border-sky-500/30 bg-sky-500/10 text-sky-200", dot: "bg-sky-400" },
   working: { label: "Travail en cours", tone: "border-sky-500/30 bg-sky-500/10 text-sky-200", dot: "bg-sky-400" },
   verification: { label: "Vérification", tone: "border-violet-500/30 bg-violet-500/10 text-violet-200", dot: "bg-violet-400" },
   completed: { label: "Terminé", tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200", dot: "bg-emerald-400" },
   problem: { label: "Attention requise", tone: "border-rose-500/30 bg-rose-500/10 text-rose-200", dot: "bg-rose-400" },
+};
+
+const activityKindMeta: Record<AgentActivityDetail["activityKind"], { label: string; tone: string }> = {
+  waiting: { label: "En attente", tone: "border-slate-500/30 bg-slate-500/10 text-slate-300" },
+  real: { label: "Activité réelle enregistrée", tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" },
+  simulation: { label: "Simulation", tone: "border-violet-500/30 bg-violet-500/10 text-violet-200" },
+  failure: { label: "Échec ou blocage", tone: "border-rose-500/30 bg-rose-500/10 text-rose-200" },
 };
 
 const profileLabels: Record<NonNullable<OpsSnapshot["agents"][number]["modelProfile"]>, ModelProfile> = {
@@ -105,6 +112,18 @@ const profileLabels: Record<NonNullable<OpsSnapshot["agents"][number]["modelProf
 
 function toCompanyState(status: OpsSnapshot["agents"][number]["ownerStatus"]): CompanyState {
   return status === "action_required" ? "action" : status;
+}
+
+function activityCompanyState(
+  activity: AgentActivityDetail | undefined,
+  ownerStatus: OpsSnapshot["agents"][number]["ownerStatus"],
+): CompanyState {
+  if (!activity) return toCompanyState(ownerStatus);
+  if (activity.phase === "problem") return "problem";
+  if (activity.phase === "completed") return "done";
+  if (["dispatching", "working", "verification"].includes(activity.phase)) return "working";
+  if (ownerStatus === "action_required") return "action";
+  return "waiting";
 }
 
 function relativeTime(value: string | null, now: number): string {
@@ -383,14 +402,15 @@ export function OpsDashboard() {
 
   const paused = snapshot ? snapshot.pause.state !== "running" : false;
   const displayAgents = useMemo<CompanyAgent[]>(() => snapshot ? snapshot.agents.map((agent) => {
+    const activity = snapshot.agentActivity.find((item) => item.agentId === agent.id);
     return {
       id: agent.id,
       name: agent.displayName,
       role: agent.role,
-      state: toCompanyState(agent.ownerStatus),
-      task: agent.currentTaskTitle ?? "Aucun travail en cours",
-      profile: agent.modelProfile ? profileLabels[agent.modelProfile] : "Rapid",
-      lastProgress: relativeTime(agent.heartbeatAt, now),
+      state: activityCompanyState(activity, agent.ownerStatus),
+      task: activity?.taskTitle ?? agent.currentTaskTitle ?? "Aucun travail récent",
+      profile: activity?.modelProfile ? profileLabels[activity.modelProfile] : agent.modelProfile ? profileLabels[agent.modelProfile] : "Rapid",
+      lastProgress: relativeTime(activity?.lastSignalAt ?? agent.heartbeatAt, now),
     };
   }) : [], [snapshot, now]);
 
@@ -450,13 +470,9 @@ export function OpsDashboard() {
   const workingCount = displayAgents.filter((agent) => agent.state === "working").length;
   const selectedPhase = selectedAgentActivity?.phase
     ?? (selectedAgent?.state === "working" ? "working" : selectedAgent?.state === "problem" ? "problem" : "idle");
+  const selectedActivityKind = selectedAgentActivity?.activityKind ?? "waiting";
   const selectedProgress = phaseProgress(selectedPhase);
-  const selectedConclusion = selectedAgentActivity?.events
-    .findLast((event) =>
-      (event.eventType === "agent.run.completed" || event.eventType === "agent.run.conclusion.corrected")
-      && event.detail,
-    )
-    ?.detail ?? null;
+  const selectedConclusion = selectedAgentActivity?.conclusion ?? null;
   const activeApproval = snapshot?.approvals[0] ?? null;
   const freshness = lastUpdateAt ? relativeTime(new Date(lastUpdateAt).toISOString(), now) : dataSource === "offline" ? "Indisponible" : "Chargement";
 
@@ -988,6 +1004,9 @@ export function OpsDashboard() {
                 <Activity aria-hidden="true" className="size-3.5" />
                 {connection === "connected" ? "Actualisation en direct" : "Resynchronisation périodique"}
               </span>
+              <span className={`inline-flex min-h-8 items-center rounded-full border px-3 text-xs font-semibold ${activityKindMeta[selectedActivityKind].tone}`}>
+                {activityKindMeta[selectedActivityKind].label}
+              </span>
             </div>
           </header>
 
@@ -996,22 +1015,22 @@ export function OpsDashboard() {
               <AgentDetailMetric label="Démarré" value={relativeTime(selectedAgentActivity?.startedAt ?? null, now)} />
               <AgentDetailMetric label="Dernier signal" value={relativeTime(selectedAgentActivity?.lastSignalAt ?? null, now)} />
               <AgentDetailMetric label="Profil" value={selectedAgent?.profile ?? "Non attribué"} />
-              <AgentDetailMetric label="État" value={selectedAgent ? stateMeta[selectedAgent.state].label : "Indisponible"} />
+              <AgentDetailMetric label="Nature" value={activityKindMeta[selectedActivityKind].label} />
             </dl>
 
             <section className="mt-4 rounded-xl border border-sky-400/15 bg-sky-400/[0.035] p-4" aria-label="Progression du travail">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-white">Progression</p>
+                <p className="text-sm font-semibold text-white">Avancement par étape</p>
                 <span className="text-sm font-bold tabular-nums text-sky-300">{selectedProgress}%</span>
               </div>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.07]">
                 <div className="h-full rounded-full bg-sky-400 transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${selectedProgress}%` }} />
               </div>
-              <p className="mt-2 text-xs leading-5 text-slate-400">{phaseExplanation(selectedPhase)}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-400">{selectedAgentActivity?.currentStep ?? phaseExplanation(selectedPhase)}</p>
             </section>
 
             <section className="mt-5 rounded-xl border border-white/[0.08] bg-white/[0.025] p-4" aria-labelledby="agent-current-task-title">
-              <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-500">Travail actuel</p>
+              <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-500">Objectif du travail</p>
               <h3 id="agent-current-task-title" className="mt-2 break-words text-base font-semibold text-white">
                 {selectedAgentActivity?.taskTitle ?? selectedAgent?.task ?? "Aucune tâche active"}
               </h3>
@@ -1027,6 +1046,46 @@ export function OpsDashboard() {
                 <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-300">{selectedConclusion}</p>
               </section>
             )}
+
+            {selectedPhase === "completed" && !selectedConclusion && (
+              <section className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-4" aria-label="Limite de la conclusion">
+                <p className="text-sm font-semibold text-amber-200">Conclusion historique indisponible</p>
+                <p className="mt-2 text-sm leading-6 text-slate-400">Le travail est marqué terminé, mais aucune conclusion exploitable n’est enregistrée. Ops ne reconstitue pas de résultat supposé.</p>
+              </section>
+            )}
+
+            <section className="mt-5 rounded-xl border border-white/[0.08] bg-white/[0.025] p-4" aria-labelledby="agent-decisions-title">
+              <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-500">Traçabilité</p>
+              <h3 id="agent-decisions-title" className="mt-2 text-base font-semibold text-white">Décisions importantes</h3>
+              {selectedAgentActivity?.decisions.length ? (
+                <ul className="mt-3 space-y-3">
+                  {selectedAgentActivity.decisions.map((decision) => (
+                    <li key={decision.id} className="border-l-2 border-sky-400/40 pl-3 text-sm leading-6 text-slate-300">
+                      <p>{decision.label}</p>
+                      <p className="text-xs text-slate-500">{relativeTime(decision.occurredAt, now)}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-slate-400">Aucune décision importante n’est enregistrée pour ce travail.</p>
+              )}
+            </section>
+
+            <section className="mt-5 rounded-xl border border-white/[0.08] bg-white/[0.025] p-4" aria-labelledby="agent-deliverables-title">
+              <p className="text-[0.68rem] font-bold uppercase tracking-[0.14em] text-slate-500">Résultats contrôlés</p>
+              <h3 id="agent-deliverables-title" className="mt-2 text-base font-semibold text-white">Livrables et éléments vérifiés</h3>
+              {selectedAgentActivity?.deliverables.length ? (
+                <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
+                  {selectedAgentActivity.deliverables.map((deliverable, index) => (
+                    <li key={`${index}-${deliverable}`} className="flex gap-2"><CheckCircle2 aria-hidden="true" className="mt-1 size-4 shrink-0 text-emerald-300" /><span className="break-words [overflow-wrap:anywhere]">{deliverable}</span></li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-slate-400">{selectedPhase === "completed"
+                  ? "Aucun livrable ou élément de preuve n’est associé à cette conclusion historique."
+                  : "Aucun livrable vérifié n’est encore disponible pour ce travail."}</p>
+              )}
+            </section>
 
             <section className="mt-6" aria-labelledby="agent-timeline-title">
               <div className="flex items-center justify-between gap-3">
@@ -1058,7 +1117,7 @@ export function OpsDashboard() {
               ) : (
                 <div className="mt-4 rounded-xl border border-dashed border-sky-400/20 bg-sky-400/[0.04] p-4 text-sm leading-6 text-slate-400" role="status">
                   {selectedPhase === "working"
-                    ? "L’agent travaille dans Codex — aucun nouveau signal opérationnel pour le moment."
+                    ? "Le travail local est enregistré comme en cours, mais aucun nouvel événement n’est disponible pour le moment."
                     : "Aucun événement opérationnel récent pour cet agent."}
                 </div>
               )}
@@ -1402,7 +1461,7 @@ function timelineEventPresentation(
     },
     "agent.run.blocked": {
       title: "Information ou autorisation nécessaire",
-      explanation: `${work} est en pause jusqu’à la résolution du blocage.`,
+      explanation: detail ?? `${work} est en pause jusqu’à la résolution du blocage.`,
     },
     "agent.run.reconciliation_required": {
       title: "Résultat à confirmer",

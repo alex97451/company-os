@@ -35,7 +35,10 @@ describe("cockpit repository atomic boundaries", () => {
       idempotencyKey: "owner-command-0001",
       expectedAggregateVersion: 3,
       commandType: "owner.message",
-      safePayload: { message: "Validate local cockpit" },
+      safePayload: {
+        message: "Validate local cockpit with a structured internal contract",
+        ownerVisibleMessage: "Le CEO prépare un bilan local en lecture seule.",
+      },
       expiresAt: new Date(Date.now() + 60_000),
     })).resolves.toBe(commandId);
 
@@ -50,6 +53,8 @@ describe("cockpit repository atomic boundaries", () => {
     ]));
     const outboxCall = fake.calls.find(({ sql }) => sql.includes("INSERT INTO cockpit_outbox"));
     expect(outboxCall?.params[1]).toMatchObject({ commandId, commandType: "owner.message" });
+    const ownerMessageCall = fake.calls.find(({ sql }) => sql.includes("INSERT INTO cockpit_messages"));
+    expect(ownerMessageCall?.params[1]).toBe("Le CEO prépare un bilan local en lecture seule.");
   });
 
   it("does not duplicate outbox work for an idempotent replay", async () => {
@@ -125,5 +130,24 @@ describe("cockpit repository atomic boundaries", () => {
     await expect(new CockpitRepository(fake.pool).purgeExpiredEvents()).resolves.toBe(7);
     expect(fake.calls.some(({ sql }) => sql === "DELETE FROM cockpit_events WHERE expires_at <= now()" )).toBe(true);
     expect(fake.calls.some(({ sql }) => sql === "DELETE FROM cockpit_messages WHERE expires_at <= now()" )).toBe(true);
+  });
+
+  it("correlates verification activity with the agent instance that owns the run", async () => {
+    const now = new Date("2026-08-14T00:00:00.000Z");
+    const fake = fakePool((sql) => {
+      if (sql.includes("FROM cockpit_pause")) {
+        return { rows: [{ state: "running", reason: null, version: 1, changedBy: "owner", changedAt: now }], rowCount: 1 };
+      }
+      if (sql.includes("FROM cockpit_owner_state")) {
+        return { rows: [{ commandVersion: 1 }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    await new CockpitRepository(fake.pool).getSnapshot();
+
+    const activityQuery = fake.calls.find(({ sql }) => sql.includes('recent_task.id AS "taskId"'))?.sql ?? "";
+    expect(activityQuery).toContain("t.verifier_agent_id = a.id AND t.status = 'verification'");
+    expect(activityQuery).toContain("run_instance.agent_id = a.id");
   });
 });

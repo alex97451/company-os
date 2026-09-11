@@ -1,10 +1,53 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Boxes, CheckCircle2, ExternalLink, FolderLock, LoaderCircle, Play, Plus, Radio, Server, Square, Trash2 } from "lucide-react";
+import { Boxes, CheckCircle2, ClipboardCheck, ExternalLink, FolderLock, LoaderCircle, Play, Plus, Radio, Server, Square, Trash2, TriangleAlert } from "lucide-react";
 
 type ProjectStatus = "registered" | "online" | "offline" | "blocked" | "error";
 type ProjectKind = "saas" | "web_app" | "api" | "library" | "generic";
+type ProjectDiscovery = {
+  version: 1;
+  analyzedAt: string;
+  canonicalPath: string;
+  existingProjectId: string | null;
+  writable: true;
+  technologies: string[];
+  packageManager: "npm" | "pnpm" | "yarn" | "bun" | "none";
+  scripts: string[];
+  documentation: { readme: boolean; agentInstructions: boolean; docsDirectory: boolean; markdownFiles: number };
+  git: { state: "clean" | "changes" | "not_repository" | "unavailable"; branch: string | null; changedFiles: number };
+  suggestedKind: ProjectKind;
+  commands: { verify: string; start: string; stop: string };
+};
+type ProjectInitialization = {
+  version: 1;
+  state: "validated" | "starting" | "ready" | "error";
+  updatedAt: string;
+  steps: Array<{
+    id: "folder_check" | "workspace_analysis" | "local_files" | "database" | "storage" | "team" | "cockpit";
+    status: "pending" | "active" | "complete" | "error";
+    message: string;
+  }>;
+};
+type ProjectInitialReviewBasis = "technologies" | "commands" | "documentation" | "git" | "operational_readiness";
+type ProjectInitialReview = {
+  version: 1;
+  state: "queued" | "running" | "completed" | "error";
+  commandId: string | null;
+  triggeredAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  conclusion: string | null;
+  limits: string[];
+  priorities: Array<{
+    id: "P1" | "P2" | "P3";
+    title: string;
+    observation: string;
+    basis: ProjectInitialReviewBasis[];
+    acceptanceCriteria: string[];
+  }>;
+  errorCode: string | null;
+};
 type Project = {
   id: string;
   displayName: string;
@@ -19,6 +62,9 @@ type Project = {
   webPort: number | null;
   cockpitUrl: string | null;
   initializedAt: string | null;
+  discovery: ProjectDiscovery | null;
+  initialization: ProjectInitialization | null;
+  initialReview: ProjectInitialReview | null;
 };
 
 const statusMeta: Record<ProjectStatus, { label: string; className: string }> = {
@@ -34,6 +80,7 @@ export function OpsProjects() {
   const [allowedRoots, setAllowedRoots] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [preflight, setPreflight] = useState<{ requestedPath: string; discovery: ProjectDiscovery } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -60,9 +107,22 @@ export function OpsProjects() {
   async function register(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const workspacePath = String(form.get("workspacePath") ?? "");
     setBusy(true);
     setNotice(null);
     try {
+      if (!preflight || preflight.requestedPath !== workspacePath) {
+        const response = await fetch("/api/ops/projects/preflight", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-company-os-csrf": readCookie("company_os_ops_csrf") },
+          body: JSON.stringify({ workspacePath }),
+        });
+        const data = await response.json() as { discovery?: ProjectDiscovery; error?: string };
+        if (!response.ok || !data.discovery) throw new Error(data.error ?? "PROJECT_PREFLIGHT_FAILED");
+        setPreflight({ requestedPath: workspacePath, discovery: data.discovery });
+        setNotice("Analyse terminée sans modifier le dossier. Vérifie le résumé puis confirme l’initialisation.");
+        return;
+      }
       const response = await fetch("/api/ops/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-company-os-csrf": readCookie("company_os_ops_csrf") },
@@ -70,7 +130,7 @@ export function OpsProjects() {
           id: String(form.get("id") ?? ""),
           displayName: String(form.get("displayName") ?? ""),
           kind: String(form.get("kind") ?? "generic"),
-          workspacePath: String(form.get("workspacePath") ?? ""),
+          workspacePath,
         }),
       });
       const data = await response.json() as { error?: string; issues?: Array<{ path?: Array<string | number> }> };
@@ -79,7 +139,8 @@ export function OpsProjects() {
         throw new Error(invalidField ? `INVALID_INPUT_${String(invalidField).toUpperCase()}` : (data.error ?? "PROJECT_REGISTER_FAILED"));
       }
       event.currentTarget.reset();
-      setNotice("Projet préparé. Son runtime dédié démarre maintenant ; son passage en ligne sera confirmé par un signal réel.");
+      setPreflight(null);
+      setNotice("Le dossier est préparé. Ops affiche maintenant chaque ressource réellement vérifiée jusqu’au démarrage du cockpit.");
       await load();
     } catch (error) {
       setNotice(projectErrorMessage(error));
@@ -165,9 +226,14 @@ export function OpsProjects() {
               </div>
               <dl className="mt-4 space-y-2 text-xs leading-5">
                 <div><dt className="text-slate-500">Dossier autorisé</dt><dd className="break-all text-slate-300">{project.workspacePath ?? "Non défini"}</dd></div>
-                <div><dt className="text-slate-500">Initialisation</dt><dd className="text-slate-300">{project.initializedAt ? "Company OS installé" : "À initialiser"}</dd></div>
+                <div><dt className="text-slate-500">Initialisation</dt><dd className="text-slate-300">{initializationLabel(project)}</dd></div>
                 <div><dt className="text-slate-500">Dernier signal du runtime</dt><dd className="text-slate-300">{project.lastHeartbeatAt ? new Date(project.lastHeartbeatAt).toLocaleString("fr-FR") : "Aucun signal reçu"}</dd></div>
               </dl>
+              {project.discovery && <DiscoverySummary discovery={project.discovery} compact />}
+              {project.initialization && <InitializationProgress initialization={project.initialization} />}
+              {!project.current && (project.initialization || project.initialReview) && (
+                <InitialReview review={project.initialReview} initialization={project.initialization} />
+              )}
               {!project.current && <div className="mt-4 flex flex-wrap gap-2">
                 {project.status === "online" && project.cockpitUrl && (
                   <a href={project.cockpitUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-emerald-300 px-3 text-sm font-bold text-slate-950 transition-colors hover:bg-emerald-200">
@@ -194,7 +260,14 @@ export function OpsProjects() {
           <Plus className="size-4 text-amber-200" />
           <span className="flex-1">Connecter un nouveau projet</span>
         </summary>
-        <form onSubmit={register} className="grid gap-4 border-t border-white/[0.07] p-4 sm:grid-cols-2">
+        <form
+          onSubmit={register}
+          onInput={(event) => {
+            const target = event.target as HTMLInputElement;
+            if (target.name === "workspacePath" && preflight && target.value !== preflight.requestedPath) setPreflight(null);
+          }}
+          className="grid gap-4 border-t border-white/[0.07] p-4 sm:grid-cols-2"
+        >
           <ProjectField name="id" label="Identifiant" placeholder="mon-nouveau-projet" />
           <ProjectField name="displayName" label="Nom affiché" placeholder="Mon nouveau projet" />
           <label className="text-xs font-semibold text-slate-300">Type
@@ -204,15 +277,136 @@ export function OpsProjects() {
           </label>
           <ProjectField name="workspacePath" label="Chemin absolu du projet" placeholder={allowedRoots[0] ? `${allowedRoots[0]}\\mon-projet` : "C:\\chemin\\autorisé\\projet"} />
           <div className="sm:col-span-2 rounded-xl border border-sky-400/20 bg-sky-400/[0.05] p-3 text-xs leading-5 text-sky-100">
-            Le dossier doit déjà exister. Company OS ajoute uniquement ses fichiers absents, prépare les agents et démarre un runtime local isolé. Aucun fichier existant n’est remplacé.
+            La première étape analyse le dossier sans le modifier. Après ta confirmation, Company OS ajoute uniquement ses fichiers absents, puis vérifie séparément la base, le stockage, l’équipe et le cockpit local.
           </div>
+          {preflight && <div className="sm:col-span-2"><DiscoverySummary discovery={preflight.discovery} /></div>}
           <button type="submit" disabled={busy} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber-300 px-4 text-sm font-bold text-slate-950 hover:bg-amber-200 disabled:opacity-50 sm:w-fit">
-            {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Server className="size-4" />} Initialiser et démarrer
+            {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Server className="size-4" />} {preflight ? "Confirmer et initialiser" : "Analyser le dossier"}
           </button>
         </form>
       </details>
     </section>
   );
+}
+
+function DiscoverySummary({ discovery, compact = false }: { discovery: ProjectDiscovery; compact?: boolean }) {
+  const gitLabel = discovery.git.state === "clean"
+    ? "Git propre"
+    : discovery.git.state === "changes"
+      ? `${discovery.git.changedFiles} changement${discovery.git.changedFiles > 1 ? "s" : ""} Git conservé${discovery.git.changedFiles > 1 ? "s" : ""}`
+      : discovery.git.state === "not_repository"
+        ? "Pas de dépôt Git"
+        : "État Git indisponible";
+  return (
+    <div className={`${compact ? "mt-4" : ""} rounded-xl border border-emerald-400/20 bg-emerald-400/[0.05] p-3 text-xs leading-5 text-slate-300`}>
+      <p className="font-semibold text-emerald-100">Dossier analysé et accessible en écriture</p>
+      <div className="mt-2 grid gap-x-5 gap-y-1 sm:grid-cols-2">
+        <p><span className="text-slate-500">Technologies :</span> {discovery.technologies.join(", ") || "Aucune reconnue"}</p>
+        <p><span className="text-slate-500">Commandes :</span> {discovery.scripts.length > 0 ? discovery.scripts.slice(0, 6).join(", ") : "Aucune détectée"}</p>
+        <p><span className="text-slate-500">Documentation :</span> {discovery.documentation.markdownFiles} fichier{discovery.documentation.markdownFiles > 1 ? "s" : ""} Markdown</p>
+        <p><span className="text-slate-500">Git :</span> {gitLabel}{discovery.git.branch ? ` · ${discovery.git.branch}` : ""}</p>
+      </div>
+      {!compact && <p className="mt-2 break-all text-slate-500">Chemin vérifié : {discovery.canonicalPath}</p>}
+      {!compact && discovery.existingProjectId && <p className="mt-2 text-amber-100">Une initialisation existante sera reprise pour « {discovery.existingProjectId} ».</p>}
+    </div>
+  );
+}
+
+function InitializationProgress({ initialization }: { initialization: ProjectInitialization }) {
+  return (
+    <ol className="mt-4 space-y-2" aria-label="Progression de l’initialisation">
+      {initialization.steps.map((step) => (
+        <li key={step.id} className="flex gap-2 text-xs leading-5">
+          {step.status === "complete"
+            ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-300" />
+            : step.status === "active"
+              ? <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-amber-300" />
+              : step.status === "error"
+                ? <Radio className="mt-0.5 size-4 shrink-0 text-rose-300" />
+                : <Radio className="mt-0.5 size-4 shrink-0 text-slate-600" />}
+          <span className={step.status === "pending" ? "text-slate-500" : step.status === "error" ? "text-rose-200" : "text-slate-300"}>{step.message}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+const reviewBasisLabels: Record<ProjectInitialReviewBasis, string> = {
+  technologies: "technologies détectées",
+  commands: "commandes disponibles",
+  documentation: "documentation repérée",
+  git: "état Git observé",
+  operational_readiness: "mise en ligne vérifiée",
+};
+
+function InitialReview({
+  review,
+  initialization,
+}: {
+  review: ProjectInitialReview | null;
+  initialization: ProjectInitialization | null;
+}) {
+  if (!review) {
+    const verified = initialization?.state === "ready";
+    return (
+      <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3 text-xs leading-5 text-slate-400">
+        <p className="flex items-center gap-2 font-semibold text-slate-200"><ClipboardCheck className="size-4" /> Premier état des lieux CEO</p>
+        <p className="mt-1">{verified
+          ? "La mise en ligne est vérifiée. Le déclenchement idempotent du bilan attend son enregistrement."
+          : "Le bilan démarrera seulement après la vérification réelle du cockpit, du superviseur et de Codex."}</p>
+      </div>
+    );
+  }
+
+  if (review.state === "queued" || review.state === "running") {
+    return (
+      <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.04] p-3 text-xs leading-5 text-slate-300" aria-label="État du premier bilan CEO">
+        <p className="flex items-center gap-2 font-semibold text-amber-100"><LoaderCircle className="size-4 animate-spin" /> Premier état des lieux CEO</p>
+        <p className="mt-1">{review.state === "queued"
+          ? "Le diagnostic vérifié attend sa prise en charge par le CEO."
+          : "Le CEO prépare la conclusion et trois priorités; aucune action externe n’est autorisée."}</p>
+        <p className="mt-1 text-slate-500">Même suivi conservé en cas de redémarrage · dernière évolution {new Date(review.updatedAt).toLocaleString("fr-FR")}</p>
+      </div>
+    );
+  }
+
+  return (
+    <section className={`mt-4 rounded-xl border p-3 text-xs leading-5 ${review.state === "completed" ? "border-emerald-400/20 bg-emerald-400/[0.04]" : "border-rose-400/20 bg-rose-400/[0.04]"}`} aria-label="Résultat du premier bilan CEO">
+      <p className={`flex items-center gap-2 font-semibold ${review.state === "completed" ? "text-emerald-100" : "text-rose-100"}`}>
+        {review.state === "completed" ? <CheckCircle2 className="size-4" /> : <TriangleAlert className="size-4" />}
+        Premier état des lieux CEO · {review.state === "completed" ? "terminé" : "non abouti"}
+      </p>
+      {review.conclusion && <p className="mt-2 text-sm leading-6 text-slate-200">{review.conclusion}</p>}
+      {review.limits.length > 0 && (
+        <div className="mt-3 rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2">
+          <p className="font-semibold text-slate-300">Limites du bilan</p>
+          <ul className="mt-1 list-disc space-y-1 pl-4 text-slate-400">{review.limits.map((limit) => <li key={limit}>{limit}</li>)}</ul>
+        </div>
+      )}
+      {review.priorities.length === 3 && (
+        <ol className="mt-3 space-y-3" aria-label="Trois priorités proposées">
+          {review.priorities.map((priority) => (
+            <li key={priority.id} className="rounded-lg border border-white/[0.08] bg-black/10 p-3">
+              <p className="font-semibold text-white"><span className="mr-2 text-amber-200">{priority.id}</span>{priority.title}</p>
+              <p className="mt-1 text-slate-400">{priority.observation}</p>
+              <p className="mt-2 text-slate-500">Appui diagnostic : {priority.basis.map((basis) => reviewBasisLabels[basis]).join(", ")}</p>
+              <p className="mt-2 font-semibold text-slate-300">Accepté lorsque :</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4 text-slate-400">{priority.acceptanceCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul>
+            </li>
+          ))}
+        </ol>
+      )}
+      {review.errorCode && <p className="mt-2 text-slate-500">Référence de suivi : {review.errorCode}</p>}
+    </section>
+  );
+}
+
+function initializationLabel(project: Project): string {
+  if (project.initialization?.state === "ready") return "Prête et vérifiée";
+  if (project.initialization?.state === "starting") return "En cours, étape par étape";
+  if (project.initialization?.state === "error") return "Interrompue, reprise possible";
+  if (project.initialization?.state === "validated") return "Dossier validé";
+  return project.initializedAt ? "Initialisée avant le suivi détaillé" : "À initialiser";
 }
 
 function ProjectField({ name, label, placeholder }: { name: string; label: string; placeholder: string }) {
@@ -231,8 +425,14 @@ function projectErrorMessage(error: unknown): string {
     PROJECT_PATH_FORBIDDEN: "Ce dossier est protégé et ne peut pas être connecté.",
     PROJECT_PATH_OUTSIDE_ALLOWED_ROOTS: "Ce dossier se trouve hors des emplacements autorisés.",
     PROJECT_PATH_NOT_DIRECTORY: "Le chemin indiqué n’est pas un dossier existant.",
+    PROJECT_PATH_NOT_FOUND: "Ce dossier n’existe pas. Vérifie le chemin puis relance l’analyse.",
+    PROJECT_PATH_UNAVAILABLE: "Ce dossier n’est pas accessible pour le moment.",
     PROJECT_WORKSPACE_WRITE_DENIED: "Company OS n’a pas l’autorisation d’écrire dans ce dossier. Redémarre le cockpit avec run-local.ps1 depuis PowerShell, puis relance l’initialisation.",
+    PROJECT_PACKAGE_FILE_INVALID: "Le fichier package.json n’est pas lisible. Corrige-le puis relance l’analyse.",
+    PROJECT_PACKAGE_FILE_TOO_LARGE: "Le fichier package.json est anormalement volumineux et n’a pas été lu.",
     PROJECT_MANIFEST_ID_MISMATCH: "Ce dossier possède déjà un manifeste pour un autre projet.",
+    PROJECT_MANIFEST_INVALID: "Le manifeste Company OS existant n’est pas valide. Corrige-le avant de reprendre l’initialisation.",
+    PROJECT_PATH_ALREADY_CONNECTED: "Ce dossier est déjà relié à un autre projet dans Ops.",
     PROJECT_RUNTIME_ACTIVE: "Arrête d’abord le runtime avant de retirer ce projet.",
     PROJECT_RUNTIME_START_RACE: "Le runtime a changé pendant le démarrage. Relance l’initialisation.",
     OPS_PROJECT_INITIALIZATION_FAILED: "L’initialisation n’a pas abouti. Consulte le code affiché sur la carte puis réessaie.",

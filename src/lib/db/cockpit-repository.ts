@@ -30,6 +30,7 @@ const createCommandSchema = z.object({
 
 const ownerMessagePayloadSchema = z.object({
   message: z.string().trim().min(1).max(1_200),
+  ownerVisibleMessage: z.string().trim().min(1).max(1_200).optional(),
   actorId: z.string().regex(/^[a-z][a-z0-9_-]{1,31}$/).optional(),
   actorRole: z.enum(["owner", "operator"]).optional(),
 }).strict();
@@ -102,6 +103,9 @@ const agentActivitySourceRowSchema = z.object({
   modelProfile: modelProfileSchema.nullable(),
   startedAt: z.date().nullable(),
   lastSignalAt: z.date().nullable(),
+  conclusion: z.string().max(4_000).nullable(),
+  deliverables: z.array(z.string().min(1).max(500)).max(12),
+  isSimulation: z.boolean(),
 }).strict();
 
 const taskSnapshotRowSchema = z.object({
@@ -204,6 +208,7 @@ export class CockpitRepository {
       if (replay.rows[0]) return replay.rows[0].id;
       const ownerMessage = ownerMessagePayloadSchema.parse(input.safePayload);
       assertSafeOwnerMessage(ownerMessage.message);
+      if (ownerMessage.ownerVisibleMessage) assertSafeOwnerMessage(ownerMessage.ownerVisibleMessage);
       const versionResult = await client.query<{ commandVersion: number }>(
         `SELECT command_version AS "commandVersion"
          FROM cockpit_owner_state WHERE id = 1 FOR UPDATE`,
@@ -237,7 +242,7 @@ export class CockpitRepository {
       await client.query(
         `INSERT INTO cockpit_messages (sender, command_id, safe_body, status)
          VALUES ('owner',$1,$2,'pending')`,
-        [insertedId, ownerMessage.message],
+        [insertedId, ownerMessage.ownerVisibleMessage ?? ownerMessage.message],
       );
       const outboxPayload = safeOperationalPayloadSchema.parse({
         commandId: insertedId,
@@ -387,13 +392,27 @@ export class CockpitRepository {
                   recent_run.id AS "runId", recent_run.state AS "runState",
                   recent_run.model_profile AS "modelProfile",
                   COALESCE(recent_run.started_at, recent_run.created_at, recent_task.created_at) AS "startedAt",
-                  i.heartbeat_at AS "lastSignalAt"
+                  i.heartbeat_at AS "lastSignalAt",
+                  conclusion_event.summary AS conclusion,
+                  COALESCE(evidence_event.evidence, '[]'::jsonb) AS deliverables,
+                  EXISTS (
+                    SELECT 1 FROM cockpit_events mode_event
+                    WHERE mode_event.aggregate_type = 'run'
+                      AND mode_event.aggregate_id = recent_run.id::text
+                      AND (
+                        mode_event.safe_payload ->> 'transport' = 'demo-v1'
+                        OR mode_event.safe_payload ->> 'demo' = 'true'
+                      )
+                  ) AS "isSimulation"
            FROM cockpit_agents a
            LEFT JOIN cockpit_agent_instances i ON i.agent_id = a.id AND i.retired_at IS NULL
            LEFT JOIN LATERAL (
              SELECT t.id, t.title, t.intended_outcome, t.status, t.created_at, t.updated_at
              FROM cockpit_tasks t
-             WHERE t.assigned_agent_id = a.id
+             WHERE (
+                 t.assigned_agent_id = a.id
+                 OR (t.verifier_agent_id = a.id AND t.status = 'verification')
+               )
                AND (
                  t.status IN ('queued','working','action_required','verification','paused','problem')
                  OR t.updated_at > now() - interval '10 minutes'
@@ -406,9 +425,29 @@ export class CockpitRepository {
            LEFT JOIN LATERAL (
              SELECT r.id, r.state, r.model_profile, r.created_at, r.started_at
              FROM cockpit_runs r
+             JOIN cockpit_agent_instances run_instance ON run_instance.id = r.agent_instance_id
              WHERE r.task_id = recent_task.id
+               AND run_instance.agent_id = a.id
              ORDER BY r.created_at DESC LIMIT 1
            ) recent_run ON true
+           LEFT JOIN LATERAL (
+             SELECT left(result_event.safe_payload ->> 'summary', 4000) AS summary
+             FROM cockpit_events result_event
+             WHERE result_event.aggregate_type = 'run'
+               AND result_event.aggregate_id = recent_run.id::text
+               AND result_event.event_type IN ('agent.run.completed','agent.run.conclusion.corrected','agent.run.blocked')
+               AND result_event.safe_payload ? 'summary'
+             ORDER BY result_event.sequence DESC LIMIT 1
+           ) conclusion_event ON true
+           LEFT JOIN LATERAL (
+             SELECT result_event.safe_payload -> 'evidence' AS evidence
+             FROM cockpit_events result_event
+             WHERE result_event.aggregate_type = 'run'
+               AND result_event.aggregate_id = recent_run.id::text
+               AND result_event.event_type IN ('agent.run.completed','agent.run.conclusion.corrected','agent.run.blocked')
+               AND jsonb_typeof(result_event.safe_payload -> 'evidence') = 'array'
+             ORDER BY result_event.sequence DESC LIMIT 1
+           ) evidence_event ON true
            WHERE a.enabled = true
            ORDER BY CASE WHEN a.id = 'ceo' THEN 0 ELSE 1 END, a.display_name`,
         ),

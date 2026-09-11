@@ -69,6 +69,29 @@ async function launch(row) {
 }
 
 async function fail(projectId, code) {
+  await pool.query(
+    `UPDATE company_projects
+        SET manifest = CASE
+          WHEN jsonb_typeof(manifest -> 'initialization' -> 'steps') = 'array'
+          THEN jsonb_set(
+            jsonb_set(manifest, '{initialization,state}', '"error"'::jsonb, true),
+            '{initialization,steps}',
+            (SELECT jsonb_agg(CASE
+              WHEN step ->> 'status' = 'active'
+              THEN step || jsonb_build_object(
+                'status', 'error',
+                'message', 'Cette étape n’a pas abouti. Corrige la cause indiquée dans Ops puis relance l’initialisation.'
+              )
+              ELSE step
+            END) FROM jsonb_array_elements(manifest -> 'initialization' -> 'steps') AS step),
+            true
+          )
+          ELSE manifest
+        END,
+        updated_at = now()
+      WHERE id = $1`,
+    [projectId],
+  );
   await pool.query("UPDATE company_project_runtimes SET state = 'error', process_id = NULL, updated_at = now() WHERE project_id = $1", [projectId]);
   await pool.query("UPDATE company_projects SET status = 'error', last_error_code = $2, updated_at = now() WHERE id = $1", [projectId, code]);
 }

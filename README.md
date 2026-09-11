@@ -29,6 +29,19 @@ Les assistants de code savent accomplir une tâche isolée. Company OS ajoute la
 
 Il ne remplace pas le jugement du propriétaire. Il organise le travail et rend l’activité de l’équipe compréhensible et contrôlable.
 
+## Cas d’usage concret : développer Wedding Quote Check
+
+Imaginons que le propriétaire connecte **Wedding Quote Check**, un SaaS qui aide les futurs mariés à comprendre et comparer les devis de prestataires avant de verser un acompte.
+
+1. Le propriétaire enregistre le dépôt dans Company OS. Un cockpit isolé, une base PostgreSQL, un stockage MinIO, un runtime et douze conversations Codex dédiées sont créés pour ce projet.
+2. Depuis le cockpit du projet, il lance un **bilan autonome**. Le CEO examine l’état réel du produit, consulte l’équipe et identifie les priorités sans déclencher d’action externe.
+3. Les spécialistes confrontent leurs analyses : Produit étudie le parcours client, Design & conversion évalue la landing page, Développement examine le code, Qualité & sécurité recherche les risques, et Croissance prépare des pistes d’acquisition.
+4. Le CEO transforme cette discussion en travaux concrets avec responsables, résultats attendus et vérificateurs. Le propriétaire suit en direct les agents actifs, leur progression, leurs conclusions et leurs livrables.
+5. L’équipe peut localement améliorer le SaaS, exécuter les tests, documenter les décisions et produire une vidéo verticale avec voix, sous-titres et rendu Remotion dans le Studio vidéo.
+6. Toute publicité, publication TikTok/Instagram, dépense, email externe ou mise en production reste bloquée jusqu’à une approbation explicite du propriétaire.
+
+Le résultat n’est pas une simple conversation avec un assistant : le projet conserve une équipe persistante, une mémoire opérationnelle, un historique des décisions et des livrables vérifiables, tout en restant contrôlé depuis la machine locale.
+
 ## Fonctionnalités
 
 - cockpit central pour enregistrer et ouvrir plusieurs entreprises ;
@@ -129,6 +142,10 @@ Pour arrêter tous les processus Company OS sans supprimer les volumes et les do
 5. Cliquez sur **Ouvrir son cockpit**.
 
 L’initialisation est idempotente. Elle ajoute uniquement les fichiers `.company-os` absents, crée les ressources isolées, provisionne les douze conversations Codex et démarre le cockpit du projet. Elle ne remplace pas les fichiers existants et ne déclenche aucune campagne, dépense ou action externe.
+
+Après les signaux réels du cockpit, du superviseur et de Codex, Company OS lance une seule fois un premier état des lieux CEO en lecture seule. Ops affiche son état réel, sa conclusion, ses limites et exactement trois priorités reliées au diagnostic initial avec des critères d’acceptation. Consultez [le comportement détaillé et ses limites](docs/p0-initial-ceo-review.md).
+
+Dans la vue Équipe, Ops distingue maintenant l’attente, l’activité réelle enregistrée, la simulation et l’échec. La fiche d’un agent expose uniquement l’objectif, l’étape actuelle, les décisions importantes, la conclusion et les livrables ou preuves contrôlés. Elle ne recopie ni prompt, ni sortie brute, ni secret. Consultez [le contrat du suivi réel des agents](docs/p0-real-agent-tracking.md).
 
 Exemple de racine autorisée dans `.env.local` :
 
@@ -266,6 +283,19 @@ Coding assistants can complete isolated tasks. Company OS adds the operating lay
 
 It does not replace owner judgment. It organizes the work and makes the internal team’s activity understandable and controllable.
 
+## Practical use case: building Wedding Quote Check
+
+Imagine the owner connects **Wedding Quote Check**, a SaaS product that helps engaged couples understand and compare vendor quotes before paying a deposit.
+
+1. The owner registers the repository in Company OS. The project receives an isolated cockpit, PostgreSQL database, MinIO storage, runtime and twelve dedicated Codex conversations.
+2. From the project cockpit, the owner starts an **autonomous company review**. The CEO evaluates the product’s real state, consults the team and identifies priorities without triggering external actions.
+3. Specialists challenge one another’s analysis: Product reviews the customer journey, Design & conversion evaluates the landing page, Engineering inspects the code, Quality & safety investigates risks, and Growth prepares acquisition ideas.
+4. The CEO turns the discussion into concrete work with accountable agents, expected outcomes and independent verifiers. The owner can follow active agents, progress, conclusions and deliverables in real time.
+5. The team can improve the SaaS locally, run tests, document decisions and produce a vertical video with voice, captions and a real Remotion render in the Video Studio.
+6. Advertising, TikTok or Instagram publishing, external spending, outbound email and production deployment remain blocked until the owner gives explicit approval.
+
+The result is more than a conversation with an assistant: the project retains a persistent team, operational memory, decision history and verifiable deliverables while remaining controlled from the local machine.
+
 ## Features
 
 - central cockpit for registering and opening multiple companies;
@@ -366,6 +396,10 @@ Stop every Company OS process without deleting volumes or data:
 5. Select **Open cockpit**.
 
 Initialization is idempotent. It only adds missing `.company-os` files, creates isolated resources, provisions eleven Codex conversations and starts the project cockpit. It does not overwrite existing files or trigger campaigns, spending or external actions.
+
+After the cockpit, supervisor and Codex have emitted real readiness signals, Company OS starts one read-only initial CEO review. Ops shows its real state, conclusion, limitations and exactly three priorities tied to the initial diagnostic with acceptance criteria. See the [detailed behavior and limitations](docs/p0-initial-ceo-review.md).
+
+In the Team view, Ops now distinguishes waiting, recorded real activity, simulation and failure. An agent detail only exposes the objective, current step, important decisions, conclusion, and controlled deliverables or evidence. It never copies prompts, raw output, or secrets. See the [real agent tracking contract](docs/p0-real-agent-tracking.md).
 
 Example allowed root configuration in `.env.local`:
 

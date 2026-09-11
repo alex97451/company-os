@@ -1,7 +1,15 @@
 import type { Pool } from "pg";
 import { withTransaction } from "@/lib/db/pool";
 import { assertProjectPathAllowed } from "./path-policy";
-import type { RegisterCompanyProject } from "./manifest";
+import {
+  projectDiscoverySchema,
+  projectInitialReviewSchema,
+  projectInitializationProgressSchema,
+  type ProjectDiscovery,
+  type ProjectInitialReview,
+  type ProjectInitializationProgress,
+  type RegisterCompanyProject,
+} from "./manifest";
 
 export type CompanyProjectView = {
   id: string;
@@ -17,6 +25,9 @@ export type CompanyProjectView = {
   webPort: number | null;
   cockpitUrl: string | null;
   initializedAt: string | null;
+  discovery: ProjectDiscovery | null;
+  initialization: ProjectInitializationProgress | null;
+  initialReview: ProjectInitialReview | null;
 };
 
 type ProjectRow = {
@@ -31,6 +42,9 @@ type ProjectRow = {
   runtime_state: CompanyProjectView["runtimeState"];
   web_port: number | null;
   initialized_at: string | null;
+  discovery: unknown;
+  initialization: unknown;
+  initial_review: unknown;
 };
 
 export type RegisteredCompanyProject = {
@@ -102,7 +116,10 @@ export class CompanyProjectRepository {
               COALESCE(runtime.last_heartbeat_at, project.last_heartbeat_at) AS last_heartbeat_at,
               project.last_error_code,
               runtime.state AS runtime_state, runtime.web_port,
-              project.manifest ->> 'initializedAt' AS initialized_at
+              project.manifest ->> 'initializedAt' AS initialized_at,
+              project.manifest -> 'discovery' AS discovery,
+              project.manifest -> 'initialization' AS initialization,
+              project.manifest -> 'initialReview' AS initial_review
          FROM company_projects project
          LEFT JOIN company_project_runtimes runtime ON runtime.project_id = project.id
         WHERE ($2 = true OR project.id = $1)
@@ -125,6 +142,9 @@ export class CompanyProjectRepository {
       webPort: row.web_port,
       cockpitUrl: row.web_port ? `http://localhost:${row.web_port}/ops` : null,
       initializedAt: row.initialized_at,
+      discovery: nullableParsed(projectDiscoverySchema, row.discovery),
+      initialization: nullableParsed(projectInitializationProgressSchema, row.initialization),
+      initialReview: nullableParsed(projectInitialReviewSchema, row.initial_review),
     }));
   }
 
@@ -151,22 +171,44 @@ export class CompanyProjectRepository {
     };
   }
 
-  async register(input: RegisterCompanyProject, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  async register(
+    input: RegisterCompanyProject,
+    discovery: ProjectDiscovery,
+    progress: ProjectInitializationProgress,
+    env: NodeJS.ProcessEnv = process.env,
+  ): Promise<void> {
     const workspacePath = assertProjectPathAllowed(input.workspacePath, env);
-    await this.pool.query(
-      `INSERT INTO company_projects
+    if (workspacePath !== assertProjectPathAllowed(discovery.canonicalPath, env)) throw new Error("PROJECT_PREFLIGHT_PATH_MISMATCH");
+    const validatedDiscovery = projectDiscoverySchema.parse(discovery);
+    const validatedProgress = projectInitializationProgressSchema.parse(progress);
+    try {
+      await this.pool.query(
+        `INSERT INTO company_projects
          (id, display_name, kind, workspace_path, isolation_mode, status, manifest)
        VALUES ($1, $2, $3, $4, 'dedicated_runtime', 'registered',
-               jsonb_build_object('version', 1, 'externalWorkEnabledByDefault', false))
+               jsonb_build_object(
+                 'version', 1,
+                 'externalWorkEnabledByDefault', false,
+                 'discovery', $5::jsonb,
+                 'initialization', $6::jsonb
+               ))
        ON CONFLICT (id) DO UPDATE
          SET display_name = EXCLUDED.display_name,
              kind = EXCLUDED.kind,
              workspace_path = EXCLUDED.workspace_path,
              status = CASE WHEN company_projects.status = 'online' THEN 'online' ELSE 'registered' END,
+             manifest = company_projects.manifest || jsonb_build_object(
+               'discovery', $5::jsonb,
+               'initialization', $6::jsonb
+             ),
              last_error_code = NULL,
              updated_at = now()`,
-      [input.id, input.displayName, input.kind, workspacePath],
-    );
+        [input.id, input.displayName, input.kind, workspacePath, JSON.stringify(validatedDiscovery), JSON.stringify(validatedProgress)],
+      );
+    } catch (error) {
+      if ((error as { code?: string }).code === "23505") throw new Error("PROJECT_PATH_ALREADY_CONNECTED");
+      throw error;
+    }
   }
 
   async disconnect(id: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -188,19 +230,29 @@ export class CompanyProjectRepository {
     if (!result.rowCount) throw new Error("PROJECT_NOT_FOUND");
   }
 
-  async markRuntimeStarting(projectId: string, runtimeId: string, webPort: number): Promise<void> {
+  async markRuntimeStarting(
+    projectId: string,
+    runtimeId: string,
+    webPort: number,
+    discovery: ProjectDiscovery,
+    progress: ProjectInitializationProgress,
+  ): Promise<void> {
+    const validatedDiscovery = projectDiscoverySchema.parse(discovery);
+    const validatedProgress = projectInitializationProgressSchema.parse(progress);
     await withTransaction(this.pool, async (client) => {
       await client.query(
         `UPDATE company_projects
             SET status = 'registered',
                 manifest = manifest || jsonb_build_object(
                   'initializedAt', now()::text,
-                  'bootstrapVersion', 1
+                  'bootstrapVersion', 1,
+                  'discovery', $2::jsonb,
+                  'initialization', $3::jsonb
                 ),
                 last_error_code = NULL,
                 updated_at = now()
           WHERE id = $1`,
-        [projectId],
+        [projectId, JSON.stringify(validatedDiscovery), JSON.stringify(validatedProgress)],
       );
       await client.query(
         `INSERT INTO company_project_runtimes
@@ -241,13 +293,24 @@ export class CompanyProjectRepository {
     if (result.rowCount !== 1) throw new Error("PROJECT_RUNTIME_START_RACE");
   }
 
-  async markInitializationError(projectId: string, errorCode: string): Promise<void> {
+  async markInitializationError(
+    projectId: string,
+    errorCode: string,
+    progress: ProjectInitializationProgress | null = null,
+  ): Promise<void> {
+    const validatedProgress = progress ? projectInitializationProgressSchema.parse(progress) : null;
     await withTransaction(this.pool, async (client) => {
       await client.query(
         `UPDATE company_projects
-            SET status = 'error', last_error_code = $2, updated_at = now()
+            SET status = 'error',
+                last_error_code = $2,
+                manifest = CASE
+                  WHEN $3::jsonb IS NULL THEN manifest
+                  ELSE manifest || jsonb_build_object('initialization', $3::jsonb)
+                END,
+                updated_at = now()
           WHERE id = $1`,
-        [projectId, errorCode.slice(0, 120)],
+        [projectId, errorCode.slice(0, 120), validatedProgress ? JSON.stringify(validatedProgress) : null],
       );
       await client.query(
         `UPDATE company_project_runtimes
@@ -301,6 +364,11 @@ export class CompanyProjectRepository {
       );
     });
   }
+}
+
+function nullableParsed<T>(schema: { safeParse: (value: unknown) => { success: boolean; data?: T } }, value: unknown): T | null {
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data ?? null : null;
 }
 
 function safePort(appUrl: string | undefined): number | null {
